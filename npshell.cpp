@@ -9,7 +9,7 @@ vector<string> split(const string& str,const string& delim);
 void initEnv();
 
 int main(){
-    //initEnv();
+    initEnv();
     while(1){
         vector<string> cmdToken = readCmdToToken();
         analyzeCmd( cmdToken );
@@ -23,19 +23,16 @@ vector<string> readCmdToToken(){
     cout<< "% ";
     getline(cin,cmd);
     cmdToken = split(cmd," ");
-    /*for(int i = 0; i < cmdToken.size(); i++){
-        cout << cmdToken[i] << endl;
-    }*/
 
     return cmdToken;
 }
 
-
-/*void initEnv(){
-    char mypath[]="PATH=bin:.";
+void initEnv(){
+    char* mypath = new char[1024];
+    strcpy(mypath,"PATH=bin:.");
     putenv( mypath );
-    cout << getenv("PATH")<<endl;    
-}*/
+    //delete[] mypath;
+}
 
 vector<string> split(const string& str, const string& delim) {
 	vector<string> res;
@@ -53,7 +50,6 @@ vector<string> split(const string& str, const string& delim) {
 	return res;
 }
 
-
 void analyzeCmd (vector<string> CmdToken){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit" && CmdToken.size() == 1){
@@ -66,12 +62,15 @@ void analyzeCmd (vector<string> CmdToken){
         copy(tmp.begin(),tmp.end(),tmp_char);
         tmp_char[tmp.size()] = '\0';
         putenv(tmp_char);
-        delete[] tmp_char; 
+        //delete[] tmp_char; 
     }else if( CmdToken.at(0) == "printenv"){
-        cout << getenv(CmdToken.at(1).c_str())<<endl;
+        char* tmp_char = new char[CmdToken.at(1).size() + 1 ];
+        copy(CmdToken.at(1).begin(),CmdToken.at(1).end(),tmp_char);
+        tmp_char[CmdToken.at(1).size()] = '\0';
+        cout << getenv(tmp_char)<<endl;
+        //delete[] tmp_char;
     }else{
         cout << "Unknown command: [" << CmdToken.at(0) << "]." << endl;
-    }
-    return ;
+    } 
 }
 

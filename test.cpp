@@ -1,17 +1,22 @@
 #include <stdlib.h> 
 #include <iostream> 
- 
+using namespace std;
 int main() { 
  
-// get and print shell environmental variable home 
-std::cout << "ORI PATH = " << getenv("PATH") << std::endl;  
  
-//set new shell environmental variable using putenv 
-char mypath[]="PATH=bin:."; 
-putenv( mypath ); 
+//set new shell environmental variable using putenv
+
+while(1){
+string tmp; 
+getline(cin,tmp);
+char* tmp_char = new char[tmp.size() + 1 ];
+copy(tmp.begin(),tmp.end(),tmp_char);
+tmp_char[tmp.size()] = '\0';
  
-std::cout << "AC PATH = " << getenv("PATH") << std::endl; 
+putenv( tmp_char ); 
  
+cout << "PATH = " << getenv("PATH") << endl; 
+}
 return 0; 
  
 }
