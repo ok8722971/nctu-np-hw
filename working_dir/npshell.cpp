@@ -1,5 +1,8 @@
 #include<bits/stdc++.h>
-#include<unistd.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
 using namespace std;
 
 void setenv();
@@ -8,6 +11,8 @@ vector<string> readCmdToToken();
 void analyzeCmd (vector<string> CmdToken);
 vector<string> split(const string& str,const string& delim);
 void initEnv();
+void redirect( char*[], string );
+void execOneCmd(vector<string>);
 
 int main(){
     initEnv();
@@ -53,7 +58,7 @@ vector<string> split(const string& str, const string& delim) {
 
 void analyzeCmd (vector<string> CmdToken){
     if( CmdToken.empty()){
-    }else if( CmdToken.at(0) == "exit" && CmdToken.size() == 1){
+    }else if( CmdToken.at(0) == "exit"){
         exit(0);
     }else if( CmdToken.at(0) == "setenv"){
         string tmp = CmdToken.at(1) + "=" + CmdToken.at(2);
@@ -70,12 +75,97 @@ void analyzeCmd (vector<string> CmdToken){
         tmp_char[CmdToken.at(1).size()] = '\0';
         cout << getenv(tmp_char)<<endl;
         //delete[] tmp_char;
-    }else if( CmdToken.at(0) == "noop" ){
-        if(execlp("noop","noop",NULL,NULL) == -1){
-            printf("execl failed!\n");      
-        }
     }else{
-        cout << "Unknown command: [" << CmdToken.at(0) << "]." << endl;
-    } 
+        pid_t pid;
+        int status;
+        if( ( pid = fork() ) < 0){//fork failed
+            cerr << "fork failed" << endl;
+        }else if( pid > 0){//parent process
+            int status;
+            waitpid( pid, &status, 0);
+        }else {//child process
+            execOneCmd( CmdToken );
+        }
+    }
 }
+
+
+void redirect( char* args[], string fileName){
+    pid_t pid2;
+    int pipe_fd[2];
+    if ( pipe(pipe_fd) == -1){//create pipe
+        fprintf(stderr, "Error: Unable to create pipe.\n");
+        exit(EXIT_FAILURE);
+    }
+    if( ( pid2 = fork() ) < 0 ){//failed
+        cerr << "fork failed" << endl;
+    }else if( pid2 == 0 ){//child
+        close( pipe_fd[0] );//close read end
+        dup2( pipe_fd[1], STDOUT_FILENO );
+        close( pipe_fd[1] );
+        //after these three ins. child output to pipe instead of stdout
+        if( execvp( args[0], args) == -1 ){
+            cerr << "wrong command" << endl;
+        }
+    }else{//parent
+        close( pipe_fd[1] );//close write end
+        int fd_out = open( fileName.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0777);
+        /*if (fd_out < 0){//still dont know why i cant use it
+            fprintf(stderr, "Error: Unable to open the output file.\n");
+            exit(EXIT_FAILURE);
+        }else{
+            dup2( fd_out, STDOUT_FILENO );
+            close(fd_out);
+        }*/
+        char buffer[1024];
+        sleep(1);
+        int len;
+        while( (len = read( pipe_fd[0], buffer, 1024)) > 0  ){
+            write( fd_out, buffer, len);
+        }
+        close(fd_out);
+    }
+    exit(0);    
+}
+
+void execOneCmd(vector<string> CmdToken){
+    int args_cnt = 1;
+    const char* cmd = CmdToken.at(0).c_str();
+    if( CmdToken.size() == 1 ){
+        if( execlp( cmd, cmd, NULL, NULL ) == -1 ){
+            cerr << "wrong command" << endl;
+        }
+    }else if( CmdToken.at(1) == ">" ){
+        char* args[2];
+        args[0] = strdup( CmdToken.at(0).c_str() );
+        args[1] = NULL;
+        redirect( args, CmdToken.at(2) );
+    }else{
+        bool isRedir = false;
+        for( int i = 2; i < CmdToken.size(); i++){
+            if( CmdToken.at(i) == ">" ){
+                isRedir = true;
+                break;
+            }
+            else{
+                args_cnt++;
+            }
+        }
+        char* args[args_cnt+2];
+        args[0] = strdup( CmdToken.at(0).c_str() );
+        for( int i = 0; i < args_cnt ; i++ ){
+            args[i+1] = strdup( CmdToken.at(i+1).c_str() );
+        }
+        args[args_cnt+1] = NULL;
+        if( !isRedir ){//not redirection
+            if( execvp( args[0], args) == -1 ){
+                cerr << "wrong command" << endl;
+            }
+        }else{//redirection
+            redirect( args, CmdToken.at(args_cnt+2) );
+        }
+
+    }
+} 
+
 
