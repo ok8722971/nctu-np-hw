@@ -5,30 +5,33 @@
 #include <fcntl.h>
 using namespace std;
 
+#define MAX_CMD_CNT 512
+
 void setenv();
 void printenv();
-vector<string> readCmdToToken();
-void analyzeCmd (vector<string> CmdToken);
-vector<string> split(const string& str,const string& delim);
+vector<string> readPipeToToken();
+void analyzeCmd (vector<string> , int, int, int,int pipes_fd[][2]);
+vector<string> split( const string&, const string&);
 void initEnv();
 void redirect( char*[], string );
 void execOneCmd(vector<string>);
+void execCmdBySeq(vector<string>);
 
 int main(){
     initEnv();
     while(1){
-        vector<string> cmdToken = readCmdToToken();
-        analyzeCmd( cmdToken );
+        vector<string> pipeToken = readPipeToToken();
+        execCmdBySeq( pipeToken );
     }
     return 0;
 }
 
-vector<string> readCmdToToken(){
+vector<string> readPipeToToken(){
     string cmd;
     vector<string> cmdToken;
     cout<< "% ";
     getline(cin,cmd);
-    cmdToken = split(cmd," ");
+    cmdToken = split(cmd,"|");
 
     return cmdToken;
 }
@@ -56,7 +59,7 @@ vector<string> split(const string& str, const string& delim) {
 	return res;
 }
 
-void analyzeCmd (vector<string> CmdToken){
+void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_count, int pipes_fd[][2]){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
         exit(0);
@@ -80,10 +83,14 @@ void analyzeCmd (vector<string> CmdToken){
         int status;
         if( ( pid = fork() ) < 0){//fork failed
             cerr << "fork failed" << endl;
-        }else if( pid > 0){//parent process
-            int status;
-            waitpid( pid, &status, 0);
-        }else {//child process
+        }else if( pid == 0 ) {//child process
+            if (fd_in != STDIN_FILENO) { dup2(fd_in, STDIN_FILENO); }
+            if (fd_out != STDOUT_FILENO) { dup2(fd_out, STDOUT_FILENO); }
+
+            for (int P = 0; P < pipes_count; P++){
+                close(pipes_fd[P][0]);
+                close(pipes_fd[P][1]);
+            }
             execOneCmd( CmdToken );
         }
     }
@@ -168,4 +175,34 @@ void execOneCmd(vector<string> CmdToken){
     }
 } 
 
+void execCmdBySeq(vector<string> pipeToken){
+    //analyzeCmd( cmdToken );
+    int C,P;
+    int cmd_count = pipeToken.size();
+    int pipe_cnt = cmd_count - 1;
+    int pipes_fd[MAX_CMD_CNT][2];
+    for (P = 0; P < pipe_cnt; ++P){
+        if (pipe(pipes_fd[P]) == -1){
+            cerr << "can't create pipe" << endl;
+        }
+    }
+    for (C = 0; C < cmd_count; ++C)
+    {
+        int fd_in = (C == 0) ? (STDIN_FILENO) : (pipes_fd[C - 1][0]);
+        int fd_out = (C == cmd_count - 1) ? (STDOUT_FILENO) : (pipes_fd[C][1]);
+        
+        //create child process
+        analyzeCmd( split( pipeToken[C], " "), fd_in, fd_out, pipe_cnt, pipes_fd);
+    }
+    /*parent don't need pipe*/
+    for (P = 0; P < pipe_cnt; P++){
+        close(pipes_fd[P][0]);
+        close(pipes_fd[P][1]);
+    }
 
+    /* wait for all child process  */
+    for (C = 0; C < cmd_count; C++){
+        int status;
+        wait(&status);
+    }
+}
