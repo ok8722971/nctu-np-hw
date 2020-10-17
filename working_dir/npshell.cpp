@@ -10,12 +10,20 @@ using namespace std;
 void setenv();
 void printenv();
 vector<string> readPipeToToken();
-void analyzeCmd (vector<string> , int, int, int,int pipes_fd[][2]);
-vector<string> split( const string&, const string&);
+void analyzeCmd ( vector<string>, int, int, int, int pipes_fd[][2], int );
+vector<string> split( const string&, const string& );
 void initEnv();
 void redirect( char*[], string );
-void execOneCmd(vector<string>);
-void execCmdBySeq(vector<string>);
+void execOneCmd( vector<string> );
+void execCmdBySeq( vector<string> );
+vector<int> maintainNP();
+int toNum( string );
+
+struct numberpipe {
+   int cnt;//how many ins left
+   int fd;//which pipefd to fdin
+};
+vector<numberpipe> np;
 
 int main(){
     initEnv();
@@ -59,11 +67,12 @@ vector<string> split(const string& str, const string& delim) {
 	return res;
 }
 
-void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_count, int pipes_fd[][2]){
+void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_count, int pipes_fd[][2], int pipeType){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
         exit(0);
     }else if( CmdToken.at(0) == "setenv"){
+        maintainNP();
         string tmp = CmdToken.at(1) + "=" + CmdToken.at(2);
         //putenv(tmp.c_str()); 
         //can't do this cuz c_str return const and this func require none const char*
@@ -73,20 +82,36 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
         putenv(tmp_char);
         //delete[] tmp_char; 
     }else if( CmdToken.at(0) == "printenv"){
+        maintainNP();
         char* tmp_char = new char[CmdToken.at(1).size() + 1 ];
         copy(CmdToken.at(1).begin(),CmdToken.at(1).end(),tmp_char);
         tmp_char[CmdToken.at(1).size()] = '\0';
         cout << getenv(tmp_char)<<endl;
         //delete[] tmp_char;
     }else{
+        vector<int> tmp = maintainNP();
         pid_t pid;
-        int status;
         if( ( pid = fork() ) < 0){//fork failed
             cerr << "fork failed" << endl;
         }else if( pid == 0 ) {//child process
-            if (fd_in != STDIN_FILENO) { dup2(fd_in, STDIN_FILENO); }
-            if (fd_out != STDOUT_FILENO) { dup2(fd_out, STDOUT_FILENO); }
-
+            if( fd_in != STDIN_FILENO ) { dup2(fd_in, STDIN_FILENO); }
+            if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); close(fd_out); }
+            
+            /*if( tmp.size() >0 ){
+                for(int i = 0; i < tmp.size(); i++){
+                    dup2( tmp.at(i) , STDIN_FILENO );
+                    close( tmp.at(i) );
+                }
+                for(int i = 1; i < tmp.size(); i++){
+                    dup2( tmp.at(i) , STDIN_FILENO );
+                    close( tmp.at(i) );
+                }
+            }*/
+            if( pipeType ){
+                dup2(fd_out, STDERR_FILENO);
+                close(fd_out);
+            }   
+            
             for (int P = 0; P < pipes_count; P++){
                 close(pipes_fd[P][0]);
                 close(pipes_fd[P][1]);
@@ -117,15 +142,8 @@ void redirect( char* args[], string fileName){
     }else{//parent
         close( pipe_fd[1] );//close write end
         int fd_out = open( fileName.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0777);
-        /*if (fd_out < 0){//still dont know why i cant use it
-            fprintf(stderr, "Error: Unable to open the output file.\n");
-            exit(EXIT_FAILURE);
-        }else{
-            dup2( fd_out, STDOUT_FILENO );
-            close(fd_out);
-        }*/
+        
         char buffer[1024];
-        sleep(1);
         int len;
         while( (len = read( pipe_fd[0], buffer, 1024)) > 0  ){
             write( fd_out, buffer, len);
@@ -176,33 +194,80 @@ void execOneCmd(vector<string> CmdToken){
 } 
 
 void execCmdBySeq(vector<string> pipeToken){
-    //analyzeCmd( cmdToken );
-    int C,P;
+    int test = -1;    
     int cmd_count = pipeToken.size();
     int pipe_cnt = cmd_count - 1;
     int pipes_fd[MAX_CMD_CNT][2];
-    for (P = 0; P < pipe_cnt; ++P){
+    for (int P = 0; P < pipe_cnt; P++){
         if (pipe(pipes_fd[P]) == -1){
             cerr << "can't create pipe" << endl;
         }
     }
-    for (C = 0; C < cmd_count; ++C)
+    for (int C = 0; C < cmd_count; C++)
     {
         int fd_in = (C == 0) ? (STDIN_FILENO) : (pipes_fd[C - 1][0]);
         int fd_out = (C == cmd_count - 1) ? (STDOUT_FILENO) : (pipes_fd[C][1]);
-        
-        //create child process
-        analyzeCmd( split( pipeToken[C], " "), fd_in, fd_out, pipe_cnt, pipes_fd);
+        int pipeType = 0;
+
+        vector<string> CmdToken = split( pipeToken[C], " ");
+        //do pipe analyzing here
+        //ex: ls !2 >> we need to erase|2 and create a pipe to save data
+        if( CmdToken.at( CmdToken.size()-1 )[0] == '!' ){
+            int np_pipes_fd[2];
+            if (pipe(np_pipes_fd) == -1){
+                cerr << "can't create pipe" << endl;
+            }
+            fd_out = np_pipes_fd[1];
+            test = fd_out;
+            pipeType = 1;
+
+            //this is child so it won't be record to parent
+            //record np to vector
+            int num = toNum( CmdToken.at( CmdToken.size()-1 ) );
+            struct numberpipe tmp;
+            tmp.cnt = num + 1;
+            tmp.fd = np_pipes_fd[0];
+            np.push_back( tmp );
+
+            CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
+       }
+       analyzeCmd( CmdToken, fd_in, fd_out, pipe_cnt, pipes_fd , pipeType);
+       
     }
     /*parent don't need pipe*/
-    for (P = 0; P < pipe_cnt; P++){
+    for (int P = 0; P < pipe_cnt; P++){
         close(pipes_fd[P][0]);
         close(pipes_fd[P][1]);
     }
+    if(test != -1){ close(test); }
 
     /* wait for all child process  */
-    for (C = 0; C < cmd_count; C++){
+    for (int C = 0; C < cmd_count; C++){
         int status;
         wait(&status);
     }
+}
+
+vector<int> maintainNP(){
+    vector<int> tmp;
+    for( int i = 0; i < np.size(); i++){
+        cout << "i=" << i << ",i.cnt= " << np.at(i).cnt << " i.fd= " << np.at(i).fd << endl;   
+    }
+    for( int i = 0; i < np.size(); i++ ){
+        np.at(i).cnt--;
+        if( np.at(i).cnt == 0){
+            tmp.push_back( np.at(i).fd );
+            np.erase( np.begin() + i );
+        }   
+    }
+    return tmp;    
+}
+
+int toNum(string s){
+    int num = 0;    
+    for( int i = 1 ; i < s.size(); i++ ){
+        num *= 10;
+        num += s[i]-48;//ascii 0 is 48
+    }
+    return num;    
 }
