@@ -51,15 +51,15 @@ void initEnv(){
     //delete[] mypath;
 }
 
-vector<string> split(const string& str, const string& delim) {
+vector<string> split( const string& str, const string& delim) {
 	vector<string> res;
 	if("" == str) return res;
-	char * strs = new char[str.length() + 1] ;
+	char* strs = new char[str.length() + 1] ;
 	strcpy(strs, str.c_str());
-	char * d = new char[delim.length() + 1];
+	char* d = new char[delim.length() + 1];
 	strcpy(d, delim.c_str());
-	char *p = strtok(strs, d);
-	while(p) {
+	char*p = strtok(strs, d);
+	while(p){
 		string s = p; 
 		res.push_back(s); 
 		p = strtok(NULL, d);
@@ -97,16 +97,34 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
             if( fd_in != STDIN_FILENO ) { dup2(fd_in, STDIN_FILENO); }
             if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); close(fd_out); }
             
-            /*if( tmp.size() >0 ){
-                for(int i = 0; i < tmp.size(); i++){
-                    dup2( tmp.at(i) , STDIN_FILENO );
-                    close( tmp.at(i) );
+            if( tmp.size() > 0 ){
+                char content[2048];
+                char buffer[1024];
+                int len;
+                int tmp2 = tmp.at(0);//after for() it was disappear
+                while( (len = read( tmp.at(0), buffer, 1024)) > 0  ){
+                        strcat( content, buffer );
                 }
                 for(int i = 1; i < tmp.size(); i++){
-                    dup2( tmp.at(i) , STDIN_FILENO );
+                    while( (len = read( tmp.at(i), buffer, 1024)) > 0  ){
+                        strcat( content, buffer );
+                    }
                     close( tmp.at(i) );
+                }//maybe read to EOF it will close the pipe
+                //nonono i already close the pipe write end
+                //so create another pipe to read and write
+                //may  i write into STDIN_FILENO
+                //write( STDIN_FILENO, content, strlen(content) );;
+                //dup2( tmp2, STDIN_FILENO );
+                //close( tmp2 );
+                int np_pipe[2];
+                if (pipe(np_pipe) == -1){
+                    cerr << "can't create pipe" << endl;
                 }
-            }*/
+                write( np_pipe[1],content, strlen(content) );
+                close(np_pipe[1]);
+                dup2( np_pipe[0], STDIN_FILENO );
+            }
             if( pipeType ){
                 dup2(fd_out, STDERR_FILENO);
                 close(fd_out);
@@ -194,7 +212,7 @@ void execOneCmd(vector<string> CmdToken){
 } 
 
 void execCmdBySeq(vector<string> pipeToken){
-    int test = -1;    
+    int tt = -1;    
     int cmd_count = pipeToken.size();
     int pipe_cnt = cmd_count - 1;
     int pipes_fd[MAX_CMD_CNT][2];
@@ -218,7 +236,7 @@ void execCmdBySeq(vector<string> pipeToken){
                 cerr << "can't create pipe" << endl;
             }
             fd_out = np_pipes_fd[1];
-            test = fd_out;
+            tt = fd_out;//when fork done parent need to close it
             pipeType = 1;
 
             //this is child so it won't be record to parent
@@ -239,7 +257,7 @@ void execCmdBySeq(vector<string> pipeToken){
         close(pipes_fd[P][0]);
         close(pipes_fd[P][1]);
     }
-    if(test != -1){ close(test); }
+    if(tt != -1){ close(tt); }
 
     /* wait for all child process  */
     for (int C = 0; C < cmd_count; C++){
@@ -250,14 +268,15 @@ void execCmdBySeq(vector<string> pipeToken){
 
 vector<int> maintainNP(){
     vector<int> tmp;
-    for( int i = 0; i < np.size(); i++){
+    /*for( int i = 0; i < np.size(); i++){
         cout << "i=" << i << ",i.cnt= " << np.at(i).cnt << " i.fd= " << np.at(i).fd << endl;   
-    }
+    }*/
     for( int i = 0; i < np.size(); i++ ){
         np.at(i).cnt--;
         if( np.at(i).cnt == 0){
             tmp.push_back( np.at(i).fd );
             np.erase( np.begin() + i );
+            i--;//cuz erase will remove element
         }   
     }
     return tmp;    
