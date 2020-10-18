@@ -95,7 +95,7 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
             cerr << "fork failed" << endl;
         }else if( pid == 0 ) {//child process
             if( fd_in != STDIN_FILENO ) { dup2(fd_in, STDIN_FILENO); }
-            if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); close(fd_out); }
+            if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); }
             
             if( tmp.size() > 0 ){
                 char content[2048];
@@ -125,10 +125,11 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
                 close(np_pipe[1]);
                 dup2( np_pipe[0], STDIN_FILENO );
             }
-            if( pipeType ){
+            if( pipeType == 1 ){
                 dup2(fd_out, STDERR_FILENO);
-                close(fd_out);
+                //close(fd_out);
             }   
+            //close(fd_out);
             
             for (int P = 0; P < pipes_count; P++){
                 close(pipes_fd[P][0]);
