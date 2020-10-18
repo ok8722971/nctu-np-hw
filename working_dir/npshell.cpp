@@ -158,7 +158,8 @@ void redirect( char* args[], string fileName){
         close( pipe_fd[1] );
         //after these three ins. child output to pipe instead of stdout
         if( execvp( args[0], args) == -1 ){
-            cerr << "wrong command" << endl;
+            cerr << "Unknown command: [" << args[0] << "]." <<endl;
+            exit(0);
         }
     }else{//parent
         close( pipe_fd[1] );//close write end
@@ -206,7 +207,8 @@ void execOneCmd(vector<string> CmdToken){
         args[args_cnt+1] = NULL;
         if( !isRedir ){//not redirection
             if( execvp( args[0], args) == -1 ){
-                cerr << "wrong command" << endl;
+                cerr << "Unknown command: [" << args[0] <<"]." << endl;
+                exit(0);
             }
         }else{//redirection
             redirect( args, CmdToken.at(args_cnt+2) );
