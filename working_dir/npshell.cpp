@@ -128,10 +128,11 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
                 close(np_pipe[1]);
                 dup2( np_pipe[0], STDIN_FILENO );
             }
-            if( pipeType ){
+            if( pipeType == 1 ){
                 dup2(fd_out, STDERR_FILENO);
                 //close(fd_out);
             }   
+            //close(fd_out);
             
             for (int P = 0; P < pipes_count; P++){
                 close(pipes_fd[P][0]);
