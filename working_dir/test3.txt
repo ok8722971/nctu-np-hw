@@ -1,0 +1,7 @@
+   1 ÿÿÿÿÿÿÿÿa.out
+   2 bin
+   3 npshell
+   4 npshell.cpp
+   5 test1.txt
+   6 test2.txt
+   7 test.html

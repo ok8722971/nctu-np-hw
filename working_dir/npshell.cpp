@@ -15,9 +15,11 @@ vector<string> split( const string&, const string& );
 void initEnv();
 void redirect( char*[], string );
 void execOneCmd( vector<string> );
-void execCmdBySeq( vector<string> );
+void execCmdBySeq( vector<string> ,int );
 vector<int> maintainNP();
 int toNum( string );
+int isNP( string );
+
 
 struct numberpipe {
    int cnt;//how many ins left
@@ -29,7 +31,12 @@ int main(){
     initEnv();
     while(1){
         vector<string> pipeToken = readPipeToToken();
-        execCmdBySeq( pipeToken );
+        int n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
+        if( n == -1 ){
+            execCmdBySeq( pipeToken,-1 );
+        }else{
+            execCmdBySeq( pipeToken, n );
+        }
     }
     return 0;
 }
@@ -101,7 +108,6 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
                 char content[2048];
                 char buffer[1024];
                 int len;
-                int tmp2 = tmp.at(0);//after for() it was disappear
                 while( (len = read( tmp.at(0), buffer, 1024)) > 0  ){
                         strcat( content, buffer );
                 }
@@ -110,13 +116,7 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
                         strcat( content, buffer );
                     }
                     close( tmp.at(i) );
-                }//maybe read to EOF it will close the pipe
-                //nonono i already close the pipe write end
-                //so create another pipe to read and write
-                //may  i write into STDIN_FILENO
-                //write( STDIN_FILENO, content, strlen(content) );;
-                //dup2( tmp2, STDIN_FILENO );
-                //close( tmp2 );
+                }
                 int np_pipe[2];
                 if (pipe(np_pipe) == -1){
                     cerr << "can't create pipe" << endl;
@@ -176,7 +176,8 @@ void execOneCmd(vector<string> CmdToken){
     const char* cmd = CmdToken.at(0).c_str();
     if( CmdToken.size() == 1 ){
         if( execlp( cmd, cmd, NULL, NULL ) == -1 ){
-            cerr << "wrong command" << endl;
+            cerr << "Unknown command: [" << cmd <<"]." << endl;
+            exit(0);
         }
     }else if( CmdToken.at(1) == ">" ){
         char* args[2];
@@ -211,8 +212,18 @@ void execOneCmd(vector<string> CmdToken){
     }
 } 
 
-void execCmdBySeq(vector<string> pipeToken){
+void execCmdBySeq(vector<string> pipeToken , int ori_np ){
     int tt = -1;    
+    
+    //if cmd is "ls |2"
+    //the pipeToken will be pipeToken[0] = ls, pipeToken[1] = 2
+    //so we need to change pipeToken[0] -> ls |2
+    if( ori_np != -1){
+        string s;
+        s = "|" + to_string(ori_np);        
+        pipeToken.at( pipeToken.size() - 2 ) += s;
+        pipeToken.erase( pipeToken.begin() + pipeToken.size() );
+    }
     int cmd_count = pipeToken.size();
     int pipe_cnt = cmd_count - 1;
     int pipes_fd[MAX_CMD_CNT][2];
@@ -229,7 +240,7 @@ void execCmdBySeq(vector<string> pipeToken){
 
         vector<string> CmdToken = split( pipeToken[C], " ");
         //do pipe analyzing here
-        //ex: ls !2 >> we need to erase|2 and create a pipe to save data
+        //ex: ls !2 >> we need to erase!2 and create a pipe to save data
         if( CmdToken.at( CmdToken.size()-1 )[0] == '!' ){
             int np_pipes_fd[2];
             if (pipe(np_pipes_fd) == -1){
@@ -237,7 +248,24 @@ void execCmdBySeq(vector<string> pipeToken){
             }
             fd_out = np_pipes_fd[1];
             tt = fd_out;//when fork done parent need to close it
-            pipeType = 1;
+            pipeType = 1;// means it is ! type
+
+            //this is child so it won't be record to parent
+            //record np to vector
+            int num = toNum( CmdToken.at( CmdToken.size()-1 ) );
+            struct numberpipe tmp;
+            tmp.cnt = num + 1;
+            tmp.fd = np_pipes_fd[0];
+            np.push_back( tmp );
+
+            CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
+       }else if( CmdToken.at( CmdToken.size()-1 )[0] == '|' ){
+            int np_pipes_fd[2];
+            if (pipe(np_pipes_fd) == -1){
+                cerr << "can't create pipe" << endl;
+            }
+            fd_out = np_pipes_fd[1];
+            tt = fd_out;//when fork done parent need to close it
 
             //this is child so it won't be record to parent
             //record np to vector
@@ -252,14 +280,14 @@ void execCmdBySeq(vector<string> pipeToken){
        analyzeCmd( CmdToken, fd_in, fd_out, pipe_cnt, pipes_fd , pipeType);
        
     }
-    /*parent don't need pipe*/
+    //parent don't need pipe
     for (int P = 0; P < pipe_cnt; P++){
         close(pipes_fd[P][0]);
         close(pipes_fd[P][1]);
     }
     if(tt != -1){ close(tt); }
 
-    /* wait for all child process  */
+    // wait for all child process  
     for (int C = 0; C < cmd_count; C++){
         int status;
         wait(&status);
@@ -289,4 +317,18 @@ int toNum(string s){
         num += s[i]-48;//ascii 0 is 48
     }
     return num;    
+}
+
+int isNP(string s){
+    for(int i = 0; i < s.size(); i++){
+        if ( !isdigit(s[i]) ){
+            return -1;    
+        }    
+    }
+    int ans = 0;
+    for( int i = 0 ; i < s.size(); i++ ){
+        ans*= 10;
+        ans += s[i]-48;//ascii 0 is 48
+    }
+    return ans;
 }
