@@ -1,6 +1,0 @@
-a.out
-bin
-npshell
-npshell.cpp
-test.html
-t.txt
