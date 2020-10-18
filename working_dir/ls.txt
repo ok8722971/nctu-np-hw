@@ -7,3 +7,4 @@
    7 test2.txt
    8 test3.txt
    9 test.html
+  10 test.txt

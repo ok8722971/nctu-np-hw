@@ -5,12 +5,12 @@
 #include <fcntl.h>
 using namespace std;
 
-#define MAX_CMD_CNT 512
+#define MAX_CMD_CNT 2000
 
 void setenv();
 void printenv();
 vector<string> readPipeToToken();
-void analyzeCmd ( vector<string>, int, int, int, int pipes_fd[][2], int );
+void analyzeCmd ( vector<string>, int, int, int, int pipes_fd[][2], int ,vector<int>);
 vector<string> split( const string&, const string& );
 void initEnv();
 void redirect( char*[], string );
@@ -32,6 +32,7 @@ int main(){
     while(1){
         vector<string> pipeToken = readPipeToToken();
         int n = -1;
+        if( pipeToken.size() == 0){ continue; }
         if( pipeToken.size() >= 2 ){
             n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
         }
@@ -77,12 +78,12 @@ vector<string> split( const string& str, const string& delim) {
 	return res;
 }
 
-void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_count, int pipes_fd[][2], int pipeType){
+void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_count, int pipes_fd[][2], int pipeType,vector<int> tmp){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
         exit(0);
     }else if( CmdToken.at(0) == "setenv"){
-        maintainNP();
+        //maintainNP();
         string tmp = CmdToken.at(1) + "=" + CmdToken.at(2);
         //putenv(tmp.c_str()); 
         //can't do this cuz c_str return const and this func require none const char*
@@ -92,14 +93,14 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
         putenv(tmp_char);
         //delete[] tmp_char; 
     }else if( CmdToken.at(0) == "printenv"){
-        maintainNP();
+        //maintainNP();
         char* tmp_char = new char[CmdToken.at(1).size() + 1 ];
         copy(CmdToken.at(1).begin(),CmdToken.at(1).end(),tmp_char);
         tmp_char[CmdToken.at(1).size()] = '\0';
         cout << getenv(tmp_char)<<endl;
         //delete[] tmp_char;
     }else{
-        vector<int> tmp = maintainNP();
+        //vector<int> tmp = maintainNP();
         pid_t pid;
         if( ( pid = fork() ) < 0){//fork failed
             cerr << "fork failed" << endl;
@@ -220,7 +221,8 @@ void execOneCmd(vector<string> CmdToken){
 
 void execCmdBySeq(vector<string> pipeToken , int ori_np ){
     int tt = -1;    
-    
+    vector<int> tmp2 = maintainNP();
+
     //if cmd is "ls |2"
     //the pipeToken will be pipeToken[0] = ls, pipeToken[1] = 2
     //so we need to change pipeToken[0] -> ls |2
@@ -260,7 +262,7 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
             //record np to vector
             int num = toNum( CmdToken.at( CmdToken.size()-1 ) );
             struct numberpipe tmp;
-            tmp.cnt = num + 1;
+            tmp.cnt = num ;
             tmp.fd = np_pipes_fd[0];
             np.push_back( tmp );
 
@@ -277,13 +279,18 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
             //record np to vector
             int num = toNum( CmdToken.at( CmdToken.size()-1 ) );
             struct numberpipe tmp;
-            tmp.cnt = num + 1;
+            tmp.cnt = num;
             tmp.fd = np_pipes_fd[0];
             np.push_back( tmp );
 
             CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
-       }
-       analyzeCmd( CmdToken, fd_in, fd_out, pipe_cnt, pipes_fd , pipeType);
+        }
+        if( C == 0 ){
+           analyzeCmd( CmdToken, fd_in, fd_out, pipe_cnt, pipes_fd , pipeType, tmp2);
+        }else{
+           vector<int> ll;
+           analyzeCmd( CmdToken, fd_in, fd_out, pipe_cnt, pipes_fd , pipeType, ll); 
+        }
        
     }
     //parent don't need pipe
