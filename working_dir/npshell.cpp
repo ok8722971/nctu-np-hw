@@ -31,7 +31,10 @@ int main(){
     initEnv();
     while(1){
         vector<string> pipeToken = readPipeToToken();
-        int n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
+        int n = -1;
+        if( pipeToken.size() >= 2 ){
+            n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
+        }
         if( n == -1 ){
             execCmdBySeq( pipeToken,-1 );
         }else{
@@ -102,7 +105,7 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
             cerr << "fork failed" << endl;
         }else if( pid == 0 ) {//child process
             if( fd_in != STDIN_FILENO ) { dup2(fd_in, STDIN_FILENO); }
-            if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); close(fd_out); }
+            if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); }
             
             if( tmp.size() > 0 ){
                 char content[2048];
@@ -127,7 +130,7 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
             }
             if( pipeType ){
                 dup2(fd_out, STDERR_FILENO);
-                close(fd_out);
+                //close(fd_out);
             }   
             
             for (int P = 0; P < pipes_count; P++){
@@ -296,9 +299,6 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
 
 vector<int> maintainNP(){
     vector<int> tmp;
-    /*for( int i = 0; i < np.size(); i++){
-        cout << "i=" << i << ",i.cnt= " << np.at(i).cnt << " i.fd= " << np.at(i).fd << endl;   
-    }*/
     for( int i = 0; i < np.size(); i++ ){
         np.at(i).cnt--;
         if( np.at(i).cnt == 0){
