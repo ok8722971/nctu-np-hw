@@ -3,6 +3,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 using namespace std;
 
 #define MAX_CMD_CNT 2000
@@ -83,7 +85,6 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
     }else if( CmdToken.at(0) == "exit"){
         exit(0);
     }else if( CmdToken.at(0) == "setenv"){
-        //maintainNP();
         string tmp = CmdToken.at(1) + "=" + CmdToken.at(2);
         //putenv(tmp.c_str()); 
         //can't do this cuz c_str return const and this func require none const char*
@@ -91,16 +92,16 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
         copy(tmp.begin(),tmp.end(),tmp_char);
         tmp_char[tmp.size()] = '\0';
         putenv(tmp_char);
-        //delete[] tmp_char; 
     }else if( CmdToken.at(0) == "printenv"){
-        //maintainNP();
-        char* tmp_char = new char[CmdToken.at(1).size() + 1 ];
-        copy(CmdToken.at(1).begin(),CmdToken.at(1).end(),tmp_char);
-        tmp_char[CmdToken.at(1).size()] = '\0';
-        cout << getenv(tmp_char)<<endl;
-        //delete[] tmp_char;
+	if( CmdToken.size() > 1 ){
+	    char* tmp_char = new char[CmdToken.at(1).size() + 1 ];
+	    copy(CmdToken.at(1).begin(),CmdToken.at(1).end(),tmp_char);
+	    tmp_char[CmdToken.at(1).size()] = '\0';
+	    if( getenv(tmp_char) != NULL )
+	        cout << getenv(tmp_char)<<endl;
+	}
+
     }else{
-        //vector<int> tmp = maintainNP();
         pid_t pid;
         if( ( pid = fork() ) < 0){//fork failed
             cerr << "fork failed" << endl;
@@ -109,14 +110,12 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
             if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); }
             
             if( tmp.size() > 0 ){
-                char content[2048];
-                char buffer[1024];
+                char content[2048] = {'\0'};
+                char buffer[30000] = {'\0'};
                 int len;
-                while( (len = read( tmp.at(0), buffer, 1024)) > 0  ){
-                        strcat( content, buffer );
-                }
-                for(int i = 1; i < tmp.size(); i++){
-                    while( (len = read( tmp.at(i), buffer, 1024)) > 0  ){
+
+                for(int i = 0; i < tmp.size(); i++){
+                    while( (len = read( tmp.at(i), buffer, 1)) > 0  ){
                         strcat( content, buffer );
                     }
                     close( tmp.at(i) );
@@ -125,8 +124,8 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
                 if (pipe(np_pipe) == -1){
                     cerr << "can't create pipe" << endl;
                 }
-                write( np_pipe[1],content, strlen(content) );
-                close(np_pipe[1]);
+                write( np_pipe[1], content, strlen(content) );
+                close( np_pipe[1] );
                 dup2( np_pipe[0], STDIN_FILENO );
             }
             if( pipeType == 1 ){
