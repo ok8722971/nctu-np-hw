@@ -40,7 +40,7 @@ int main(){
         int n = -1;
         if( pipeToken.size() == 0){ continue; }
         if( pipeToken.size() >= 2 ){
-            n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
+            n = isNP( pipeToken.at( pipeToken.size() - 1 ) );			
         }
         if( n == -1 ){
             execCmdBySeq( pipeToken,-1 );
@@ -103,13 +103,15 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
 	    tmp_char[CmdToken.at(1).size()] = '\0';
 	    if( getenv(tmp_char) != NULL )
 	        cout << getenv(tmp_char)<<endl;
-	}
+		}
 
     }else{
         pid_t pid;
-        if( ( pid = fork() ) < 0){//fork failed
-            cerr << "fork failed" << endl;
-        }else if( pid == 0 ) {//child process
+        while( ( pid = fork() ) < 0){//fork failed
+            waitpid(-1, NULL, 0);
+			//cerr << "fork failed" << endl;
+        }
+		if( pid == 0 ) {//child process
             if( fd_in != STDIN_FILENO ) { dup2(fd_in, STDIN_FILENO); }
             if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); }
             
@@ -162,9 +164,11 @@ void redirect( char* args[], string fileName){
         fprintf(stderr, "Error: Unable to create pipe.\n");
         exit(EXIT_FAILURE);
     }
-    if( ( pid2 = fork() ) < 0 ){//failed
-        cerr << "fork failed" << endl;
-    }else if( pid2 == 0 ){//child
+    while( ( pid2 = fork() ) < 0 ){//failed
+        waitpid(-1, NULL, 0);
+		//cerr << "fork failed" << endl;
+    }
+	if( pid2 == 0 ){//child
         close( pipe_fd[0] );//close read end
         dup2( pipe_fd[1], STDOUT_FILENO );
         close( pipe_fd[1] );
@@ -313,11 +317,13 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
     }
     if(tt != -1){ 
 		close(tt);
+		while( waitpid(-1 , NULL, WNOHANG) > 0 );
     }else{
-		//while( waitpid(-1 , 0, WNOHANG) > 0 );
-		int pid = pid_list.back();
-		waitpid(pid, NULL, 0);
-		while( waitpid(-1 , 0, WNOHANG) > 0 );	
+		if( !pid_list.empty() ){
+			int pid = pid_list.back();
+			waitpid(pid, NULL, 0);
+		}
+		while( waitpid(-1 , NULL, WNOHANG) > 0 );	
 	}
 }
 
