@@ -12,7 +12,7 @@ using namespace std;
 void setenv();
 void printenv();
 vector<string> readPipeToToken();
-void analyzeCmd ( vector<string>, int, int, int ,vector<int>);
+void analyzeCmd ( vector<string>, int, int, int*, int, vector<int>, int );
 vector<string> split( const string&, const string& );
 void initEnv();
 void redirect( char*[], string );
@@ -30,6 +30,8 @@ struct numberpipe {
 
 vector<numberpipe> np;
 vector<int> pid_list;
+vector<int> fd0_list;
+vector<int> fd1_list;
 
 int main(){
     initEnv();
@@ -82,7 +84,7 @@ vector<string> split( const string& str, const string& delim) {
 	return res;
 }
 
-void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipeType,vector<int> tmp){
+void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd, int pipeType, vector<int> tmp, int C){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
         exit(0);
@@ -133,14 +135,21 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipeType,v
             if( pipeType == 1 ){
                 dup2(fd_out, STDERR_FILENO);
             }   
-            
-            /*for (int P = 0; P < pipes_count; P++){
-                close(pipes_fd[P][0]);
-                close(pipes_fd[P][1]);
-            }*/
-            execOneCmd( CmdToken );
+			if(pipes_fd[0] != 0){
+            	close(pipes_fd[0]);
+				close(pipes_fd[1]);
+            }
+			if( C > 0 ){
+				close(fd0_list.at(C-1));
+				close(fd1_list.at(C-1));	
+			}
+			execOneCmd( CmdToken );
         }else{//parent process
 			pid_list.push_back(pid);
+			if(pipes_fd[0] != 0){
+				fd0_list.push_back(pipes_fd[0]);
+				fd1_list.push_back(pipes_fd[1]);
+			}
 		}
     }
 }
@@ -224,6 +233,8 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
     int tt = -1;    
     vector<int> tmp2 = maintainNP();
     pid_list.clear();
+	fd0_list.clear();
+	fd1_list.clear();
     //if cmd is "ls |2"
     //the pipeToken will be pipeToken[0] = ls, pipeToken[1] = 2
     //so we need to change pipeToken[0] -> ls |2
@@ -234,19 +245,20 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
         pipeToken.erase( pipeToken.begin() + pipeToken.size() );
     }
     int cmd_count = pipeToken.size();
+	int last_ins_fd = -1;//last instruction's fd
+	int pipes_fd[2];
     for (int C = 0; C < cmd_count; C++)
     {
-		int last_ins_fd;//last instruction's fd
-        int fd_in = STDIN_FILENO;
-		int fd_out = STDOUT_FILENO;
+		pipes_fd[0] = 0;
+		pipes_fd[1] = 0;
         if( C != cmd_count-1 ){
-			int pipes_fd[2];
 			if (pipe(pipes_fd) == -1){
 					cerr << "can't create pipe" << endl;
 			}
-			fd_in = (C == 0) ? (STDIN_FILENO) : (last_ins_fd);
-			fd_out = (C == cmd_count - 1) ? (STDOUT_FILENO) : (pipes_fd[1]);
-		}         
+		}
+		int fd_in = (C == 0) ? (STDIN_FILENO) : (last_ins_fd);
+		int fd_out = (C == cmd_count - 1) ? (STDOUT_FILENO) : (pipes_fd[1]);
+		last_ins_fd = pipes_fd[0];
         int pipeType = 0;	
 
         vector<string> CmdToken = split( pipeToken[C], " ");
@@ -289,23 +301,23 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
             CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
         }
         if( C == 0 ){
-           analyzeCmd( CmdToken, fd_in, fd_out, pipeType, tmp2);
+           analyzeCmd( CmdToken, fd_in, fd_out, &pipes_fd[0], pipeType, tmp2, C);
         }else{
            vector<int> ll;
-           analyzeCmd( CmdToken, fd_in, fd_out, pipeType, ll); 
+           analyzeCmd( CmdToken, fd_in, fd_out, &pipes_fd[0], pipeType, ll, C); 
         }
-       
+        if( C > 0 ){
+			close(fd0_list.at(C-1));
+			close(fd1_list.at(C-1));
+		}
     }
-    //parent don't need pipe
-    /*for (int P = 0; P < pipe_cnt; P++){
-        close(pipes_fd[P][0]);
-        close(pipes_fd[P][1]);
-    }*/
     if(tt != -1){ 
 		close(tt);
     }else{
+		//while( waitpid(-1 , 0, WNOHANG) > 0 );
 		int pid = pid_list.back();
-		waitpid(pid, NULL, 0);	
+		waitpid(pid, NULL, 0);
+		while( waitpid(-1 , 0, WNOHANG) > 0 );	
 	}
 }
 
