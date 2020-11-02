@@ -12,7 +12,7 @@ using namespace std;
 void setenv();
 void printenv();
 vector<string> readPipeToToken();
-void analyzeCmd ( vector<string>, int, int, int, int pipes_fd[][2], int ,vector<int>);
+void analyzeCmd ( vector<string>, int, int, int ,vector<int>);
 vector<string> split( const string&, const string& );
 void initEnv();
 void redirect( char*[], string );
@@ -27,7 +27,9 @@ struct numberpipe {
    int cnt;//how many ins left
    int fd;//which pipefd to fdin
 };
+
 vector<numberpipe> np;
+vector<int> pid_list;
 
 int main(){
     initEnv();
@@ -80,7 +82,7 @@ vector<string> split( const string& str, const string& delim) {
 	return res;
 }
 
-void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_count, int pipes_fd[][2], int pipeType,vector<int> tmp){
+void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipeType,vector<int> tmp){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
         exit(0);
@@ -110,8 +112,8 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
             if( fd_out != STDOUT_FILENO ) { dup2(fd_out, STDOUT_FILENO); }
             
             if( tmp.size() > 0 ){
-                char content[2048] = {'\0'};
-                char buffer[30000] = {'\0'};
+                char content[100000] = {'\0'};
+                char buffer[2] = {'\0'};
                 int len;
 
                 for(int i = 0; i < tmp.size(); i++){
@@ -130,16 +132,16 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int pipes_coun
             }
             if( pipeType == 1 ){
                 dup2(fd_out, STDERR_FILENO);
-                //close(fd_out);
             }   
-            //close(fd_out);
             
-            for (int P = 0; P < pipes_count; P++){
+            /*for (int P = 0; P < pipes_count; P++){
                 close(pipes_fd[P][0]);
                 close(pipes_fd[P][1]);
-            }
+            }*/
             execOneCmd( CmdToken );
-        }
+        }else{//parent process
+			pid_list.push_back(pid);
+		}
     }
 }
 
@@ -221,7 +223,7 @@ void execOneCmd(vector<string> CmdToken){
 void execCmdBySeq(vector<string> pipeToken , int ori_np ){
     int tt = -1;    
     vector<int> tmp2 = maintainNP();
-
+    pid_list.clear();
     //if cmd is "ls |2"
     //the pipeToken will be pipeToken[0] = ls, pipeToken[1] = 2
     //so we need to change pipeToken[0] -> ls |2
@@ -232,18 +234,20 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
         pipeToken.erase( pipeToken.begin() + pipeToken.size() );
     }
     int cmd_count = pipeToken.size();
-    int pipe_cnt = cmd_count - 1;
-    int pipes_fd[MAX_CMD_CNT][2];
-    for (int P = 0; P < pipe_cnt; P++){
-        if (pipe(pipes_fd[P]) == -1){
-            cerr << "can't create pipe" << endl;
-        }
-    }
     for (int C = 0; C < cmd_count; C++)
     {
-        int fd_in = (C == 0) ? (STDIN_FILENO) : (pipes_fd[C - 1][0]);
-        int fd_out = (C == cmd_count - 1) ? (STDOUT_FILENO) : (pipes_fd[C][1]);
-        int pipeType = 0;
+		int last_ins_fd;//last instruction's fd
+        int fd_in = STDIN_FILENO;
+		int fd_out = STDOUT_FILENO;
+        if( C != cmd_count-1 ){
+			int pipes_fd[2];
+			if (pipe(pipes_fd) == -1){
+					cerr << "can't create pipe" << endl;
+			}
+			fd_in = (C == 0) ? (STDIN_FILENO) : (last_ins_fd);
+			fd_out = (C == cmd_count - 1) ? (STDOUT_FILENO) : (pipes_fd[1]);
+		}         
+        int pipeType = 0;	
 
         vector<string> CmdToken = split( pipeToken[C], " ");
         //do pipe analyzing here
@@ -285,25 +289,24 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
             CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
         }
         if( C == 0 ){
-           analyzeCmd( CmdToken, fd_in, fd_out, pipe_cnt, pipes_fd , pipeType, tmp2);
+           analyzeCmd( CmdToken, fd_in, fd_out, pipeType, tmp2);
         }else{
            vector<int> ll;
-           analyzeCmd( CmdToken, fd_in, fd_out, pipe_cnt, pipes_fd , pipeType, ll); 
+           analyzeCmd( CmdToken, fd_in, fd_out, pipeType, ll); 
         }
        
     }
     //parent don't need pipe
-    for (int P = 0; P < pipe_cnt; P++){
+    /*for (int P = 0; P < pipe_cnt; P++){
         close(pipes_fd[P][0]);
         close(pipes_fd[P][1]);
-    }
-    if(tt != -1){ close(tt); }
-
-    // wait for all child process  
-    for (int C = 0; C < cmd_count; C++){
-        int status;
-        wait(&status);
-    }
+    }*/
+    if(tt != -1){ 
+		close(tt);
+    }else{
+		int pid = pid_list.back();
+		waitpid(pid, NULL, 0);	
+	}
 }
 
 vector<int> maintainNP(){
