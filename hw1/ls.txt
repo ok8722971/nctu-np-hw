@@ -1,0 +1,9 @@
+   1 a.out
+   2 bin
+   3 largefile
+   4 ls.txt
+   5 note.txt
+   6 npshell.cpp
+   7 p.txt
+   8 test.html
+   9 test.txt
