@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <iterator>
+#include <sstream>
+#include <fstream>
 using namespace std;
 
 #define MAX_CMD_CNT 2000
@@ -35,6 +38,13 @@ vector<int> pid_list;
 vector<int> fd0_list;
 vector<int> fd1_list;
 int newsockfd = 0;
+vector<string> SplitWithSpace(const string &source)
+{
+	stringstream ss(source);
+	vector<string> vec( (istream_iterator<string>(ss)), istream_iterator<string>() );
+	return vec;
+}
+
 int main( int argc, char* argv[]){
     /*initEnv();
     while(1){
@@ -50,7 +60,7 @@ int main( int argc, char* argv[]){
             execCmdBySeq( pipeToken, n );
         }
     }*/
-	int sockfd, newsockfd, childpid;
+	int sockfd, childpid;
 	struct sockaddr_in cli_addr, serv_addr;
 	socklen_t clilen;
 	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
@@ -59,6 +69,8 @@ int main( int argc, char* argv[]){
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(atoi(argv[1]));
+	int optval = 1;
+	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
 	if(bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) <0) // bind sock & port .
 		cerr << "bind error";
 	listen(sockfd, 1);
@@ -83,37 +95,37 @@ int main( int argc, char* argv[]){
 }
 void shell(){
 	initEnv();
+	dup2( newsockfd, 0 );
+	dup2( newsockfd, 1 );
+	dup2( newsockfd, 2 );
 	while(1){
-		char buffer[20000];	
-		memset(&buffer, '\0', sizeof(buffer));
-		write(newsockfd, "% ", strlen("% "));
-		read(newsockfd, buffer, sizeof(buffer));
-		string cmd(buffer);
-		vector<string> pipeToken = split(cmd,"|");
+		cout << "% ";
+	    string cmd;
+		getline(cin,cmd);
+		vector<string> tmpToken = SplitWithSpace(cmd);
+		string tmp;
+		for( int i =0 ;i < tmpToken.size() ; i++ ){
+			if( i !=  tmpToken.size()-1 ){
+				tmp	+= tmpToken.at(i);
+				tmp += " ";
+			}else{
+				tmp += tmpToken.at(i);	
+			}
+		}
+		vector<string> pipeToken = split(tmp,"|");
 		int n = -1;
 		if( pipeToken.size() == 0){ continue; }
 		if( pipeToken.size() >= 2 ){
 			n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
 		}
-		dup2( newsockfd, 1 );
-		dup2( newsockfd, 2 );
 		if( n == -1 ){
 			execCmdBySeq( pipeToken,-1 );
 		}else{
-		    execCmdBySeq( pipeToken, n );
+			execCmdBySeq( pipeToken, n );
 		}
+		
 	}	
-} 
-
-/*vector<string> readPipeToToken(){
-    string cmd;
-    vector<string> cmdToken;
-    cout<< "% ";
-    getline(cin,cmd);
-    cmdToken = split(cmd,"|");
-
-    return cmdToken;
-}*/
+}
 
 void initEnv(){
     char* mypath = new char[1024];
