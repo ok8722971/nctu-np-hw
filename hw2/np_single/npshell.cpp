@@ -5,13 +5,15 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 using namespace std;
 
 #define MAX_CMD_CNT 2000
 
 void setenv();
 void printenv();
-vector<string> readPipeToToken();
+//vector<string> readPipeToToken();
 void analyzeCmd ( vector<string>, int, int, int*, int, vector<int>, int );
 vector<string> split( const string&, const string& );
 void initEnv();
@@ -21,7 +23,7 @@ void execCmdBySeq( vector<string> ,int );
 vector<int> maintainNP();
 int toNum( string );
 int isNP( string );
-
+void shell();
 
 struct numberpipe {
    int cnt;//how many ins left
@@ -32,9 +34,9 @@ vector<numberpipe> np;
 vector<int> pid_list;
 vector<int> fd0_list;
 vector<int> fd1_list;
-
-int main(){
-    initEnv();
+int newsockfd = 0;
+int main( int argc, char* argv[]){
+    /*initEnv();
     while(1){
         vector<string> pipeToken = readPipeToToken();
         int n = -1;
@@ -47,11 +49,63 @@ int main(){
         }else{
             execCmdBySeq( pipeToken, n );
         }
-    }
-    return 0;
+    }*/
+	int sockfd, newsockfd, childpid;
+	struct sockaddr_in cli_addr, serv_addr;
+	socklen_t clilen;
+	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+		cerr <<"server erro!";
+	bzero((char*)&serv_addr, sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	serv_addr.sin_port = htons(atoi(argv[1]));
+	if(bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) <0) // bind sock & port .
+		cerr << "bind error";
+	listen(sockfd, 1);
+	signal(SIGCHLD, SIG_IGN);
+    while (1) {
+		clilen = sizeof(cli_addr);
+		newsockfd = accept(sockfd, (struct sockaddr*) &cli_addr, &clilen);
+		if (newsockfd < 0) {
+			cerr << "Error: Accept failed";
+		}
+		cout << "New client's sockfd = " << newsockfd << endl;
+		if((childpid = fork()) < 0)
+			cerr << "Error: fork() failed";
+		else if(childpid == 0)
+			shell();
+		else{
+			cout << "Helper's pid = " << childpid << endl;
+		    close(newsockfd);
+		}
+	}
+	return 0;
 }
+void shell(){
+	initEnv();
+	while(1){
+		char buffer[20000];	
+		memset(&buffer, '\0', sizeof(buffer));
+		write(newsockfd, "% ", strlen("% "));
+		read(newsockfd, buffer, sizeof(buffer));
+		string cmd(buffer);
+		vector<string> pipeToken = split(cmd,"|");
+		int n = -1;
+		if( pipeToken.size() == 0){ continue; }
+		if( pipeToken.size() >= 2 ){
+			n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
+		}
+		dup2( newsockfd, 1 );
+		dup2( newsockfd, 2 );
+		if( n == -1 ){
+			execCmdBySeq( pipeToken,-1 );
+		}else{
+		    execCmdBySeq( pipeToken, n );
+		}
+	}	
+} 
 
-vector<string> readPipeToToken(){
+/*vector<string> readPipeToToken(){
     string cmd;
     vector<string> cmdToken;
     cout<< "% ";
@@ -59,7 +113,7 @@ vector<string> readPipeToToken(){
     cmdToken = split(cmd,"|");
 
     return cmdToken;
-}
+}*/
 
 void initEnv(){
     char* mypath = new char[1024];
