@@ -13,9 +13,7 @@
 #include <arpa/inet.h>
 using namespace std;
 
-void setEnv( char* );
 void printenv();
-//vector<string> readPipeToToken();
 void analyzeCmd ( vector<string>, int, int, int*, int, vector<int>, int );
 vector<string> split( const string&, const string& );
 void redirect( char*[], string );
@@ -125,6 +123,8 @@ int main( int argc, char* argv[]){
             if( !FD_ISSET( user[i].sock, &fds) )
                 continue;
 			cid = i; //user id i is using
+			//initial user environment
+			putenv(user[cid].path);
 			shell();
         }
 
@@ -154,25 +154,21 @@ void shell(){
 	}
 	vector<string> pipeToken = split(tmp,"|");
 	int n = -1;
-	if( pipeToken.size() == 0){ continue; }
-	if( pipeToken.size() >= 2 ){
-		n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
+	if( pipeToken.size() > 0){
+		if( pipeToken.size() >= 2 ){
+			n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
+		}
+		if( n == -1 ){
+			execCmdBySeq( pipeToken,-1 );
+		}else{
+			execCmdBySeq( pipeToken, n );
+		}
 	}
-	if( n == -1 ){
-		execCmdBySeq( pipeToken,-1 );
-	}else{
-		execCmdBySeq( pipeToken, n );
-	}	
 }
 void initClientInfo(){
     for( int i = 1 ; i <= 30 ; i++ ){
-            user[i].sock = -1;
+	    user[i].sock = -1;
     }
-}
-
-void setEnv( char* path){
-    strcpy(mypath, path);
-    putenv( mypath );
 }
 
 vector<string> split( const string& str, const string& delim) {
@@ -442,9 +438,9 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
 
 vector<int> maintainNP(){
     vector<int> tmp;
-    for( int i = 0; i < np.size(); i++ ){
+    for( int i = 0; i < user[cid].np.size(); i++ ){
         user[cid].np.at(i).cnt--;
-        if( np.at(i).cnt == 0){
+        if( user[cid].np.at(i).cnt == 0){
             tmp.push_back( user[cid].np.at(i).fd );
             user[cid].np.erase( user[cid].np.begin() + i );
             i--;//cuz erase will remove element

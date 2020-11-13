@@ -12,8 +12,6 @@
 #include <fstream>
 using namespace std;
 
-#define MAX_CMD_CNT 2000
-
 void setenv();
 void printenv();
 //vector<string> readPipeToToken();
@@ -27,42 +25,73 @@ vector<int> maintainNP();
 int toNum( string );
 int isNP( string );
 void shell();
+void initClientInfo();
+void userInit( int ); 
+
+void yell();
+void who();
+void name();
+void tell();
+
 
 struct numberpipe {
    int cnt;//how many ins left
    int fd;//which pipefd to fdin
 };
 
-vector<numberpipe> np;
-vector<int> pid_list;
-vector<int> fd0_list;
-vector<int> fd1_list;
-int newsockfd = 0;
-vector<string> SplitWithSpace(const string &source)
-{
+struct user_info{
+	int sock;  
+	string name;
+	vector<numberpipe> np;
+	vector<int> pid_list;
+	vector<int> fd0_list;
+	vector<int> fd1_list;
+	sockaddr_in addr;
+	unsigned short port;
+	string ip;
+	char *path;
+};
+
+//global variable
+struct user_info user[31];
+int cid;//which client is served
+fd_set fds;
+
+vector<string> SplitWithSpace(const string &source){
 	stringstream ss(source);
 	vector<string> vec( (istream_iterator<string>(ss)), istream_iterator<string>() );
 	return vec;
 }
 
 int main( int argc, char* argv[]){
+	initClientInfo();
+	
 	int sockfd, childpid;
 	struct sockaddr_in cli_addr, serv_addr;
 	socklen_t clilen;
+	//create socket
 	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		cerr <<"server erro!";
+	//set server 
 	bzero((char*)&serv_addr, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(atoi(argv[1]));
+	//let port can be reused
 	int optval = 1;
 	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
-	if(bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) <0) // bind sock & port .
+	//bind socket and port
+	if(bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) <0) 
 		cerr << "bind error";
-	listen(sockfd, 0);
+		
+	listen(sockfd, 30);
+	//kill zombie
 	signal(SIGCHLD, SIG_IGN);
-    while (1) {
-		clilen = sizeof(cli_addr);
+    
+	int maxfd = sockfd;
+
+	while (1) {
+		/*clilen = sizeof(cli_addr);
 		newsockfd = accept(sockfd, (struct sockaddr*) &cli_addr, &clilen);
 		if (newsockfd < 0) {
 			cerr << "Error: Accept failed";
@@ -75,8 +104,46 @@ int main( int argc, char* argv[]){
 		else{
 			cout << "Helper's pid = " << childpid << endl;
 		    close(newsockfd);
+		}*/
+		//initial every time
+		FD_ZERO(&fds);
+		FD_SET(sockfd, &fds);
+		//spec says max client will be 30
+		for( int i = 1; i <= 30; i++ ){
+			if( user[i].sock != -1 )
+				FD_SET( user[i].sock, &fds );
+			// update max
+			if( user[i].sock > maxfd )
+				maxfd = user[i].sock;
 		}
+		int n = select(maxfd + 1, &fds, NULL, NULL, NULL);
+		if( FD_ISSET(sockfd, &fds) ){
+			// var
+			int newsockfd;
+			new_sockfd = accept(sockfd, (struct sockaddr*) &client_addr, &client_len);
+			// add new client
+			add_client(new_sockfd, client_addr);
+			print_welcome(new_sockfd);
+			broadcast_new_connect(new_sockfd);
+			print_symbol(new_sockfd);
+		}
+		for(int i = 1; i <= 30; i++){
+			if( !FD_ISSET( user[i].sock, &fds) )   
+				continue;
+			load_env(i);
+			/*if(client_handler(temp->sockfd) == END){
+				printf("closed connection\n");
+				close(temp->sockfd);
+			} 
+			else {
+				// save env
+				printf("HERE\n");
+			}*/
+			save_env(i);
+		}
+
 	}
+	close(sockfd);
 	return 0;
 }
 void shell(){
@@ -111,6 +178,19 @@ void shell(){
 		}
 		
 	}	
+}
+void initClientInfo(){
+	for( int i = 1 ; i <= 30 ; i++ ){
+		userInit(i);
+	}	
+}
+void userInit( int id ){
+	user[id].sock = -1;
+    user[id].name = "(no name)";
+	user[id].np.clear();
+	user[id].pid_list.clear();
+	user[id].fd0_list.clear();
+	user[id].fd1_list.clear();
 }
 
 void initEnv(){
