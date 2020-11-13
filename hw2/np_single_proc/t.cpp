@@ -50,7 +50,7 @@ struct user_info{
     vector<int> fd1_list;
     unsigned short port;
     char* ip;
-    char* path = (char *) malloc(100);
+    char* path = (char *)malloc(100);
 };
 
 //global variable
@@ -135,9 +135,9 @@ int main( int argc, char* argv[]){
 
 void shell(){
     
-    dup2( user[i].sock, 0 );
-    dup2( user[i].sock, 1 );
-    dup2( user[i].sock, 2 );
+    dup2( user[cid].sock, 0 );
+    dup2( user[cid].sock, 1 );
+    dup2( user[cid].sock, 2 );
     
 	cout << "% ";
 	string cmd;
@@ -194,7 +194,8 @@ vector<string> split( const string& str, const string& delim) {
 void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd, int pipeType, vector<int> tmp, int C){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
-        exit(0);
+		close(user[cid].sock);
+		user[cid].sock = -1;
     }else if( CmdToken.at(0) == "setenv"){
         string tmp = CmdToken.at(1) + "=" + CmdToken.at(2);
         //putenv(tmp.c_str());
@@ -203,15 +204,17 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
         copy(tmp.begin(),tmp.end(),tmp_char);
         tmp_char[tmp.size()] = '\0';
         putenv(tmp_char);
+		//save env
+		strcpy(user[cid].path, tmp_char);
+
     }else if( CmdToken.at(0) == "printenv"){
         if( CmdToken.size() > 1 ){
             char* tmp_char = new char[CmdToken.at(1).size() + 1 ];
             copy(CmdToken.at(1).begin(),CmdToken.at(1).end(),tmp_char);
             tmp_char[CmdToken.at(1).size()] = '\0';
             if( getenv(tmp_char) != NULL )
-                cout << getenv(tmp_char)<<endl;
-                }
-
+                cout << getenv(tmp_char) << endl;
+		}
     }else{
         pid_t pid;
         while( ( pid = fork() ) < 0){//fork failed
@@ -244,20 +247,20 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
         if( pipeType == 1 ){
             dup2(fd_out, STDERR_FILENO);
         }
-                    if(pipes_fd[0] != 0){
+        if(pipes_fd[0] != 0){
             close(pipes_fd[0]);
-                            close(pipes_fd[1]);
+            close(pipes_fd[1]);
         }
         if( C > 0 ){
-                close(fd0_list.at(C-1));
-                close(fd1_list.at(C-1));
+            close(user[cid].fd0_list.at(C-1));
+            close(user[cid].fd1_list.at(C-1));
         }
         execOneCmd( CmdToken );
         }else{//parent process
-            pid_list.push_back(pid);
+            user[cid].pid_list.push_back(pid);
             if(pipes_fd[0] != 0){
-                    fd0_list.push_back(pipes_fd[0]);
-                    fd1_list.push_back(pipes_fd[1]);
+            	user[cid].fd0_list.push_back(pipes_fd[0]);
+                user[cid].fd1_list.push_back(pipes_fd[1]);
             }
         }
     }
@@ -343,10 +346,13 @@ void execOneCmd(vector<string> CmdToken){
 void execCmdBySeq(vector<string> pipeToken , int ori_np ){
     int tt = -1;
     vector<int> tmp2 = maintainNP();
-    pid_list.clear();
-        fd0_list.clear();
-        fd1_list.clear();
-    //if cmd is "ls |2"
+    
+	//here may be problem
+	user[cid].pid_list.clear();
+    user[cid].fd0_list.clear();
+    user[cid].fd1_list.clear();
+    
+	//if cmd is "ls |2"
     //the pipeToken will be pipeToken[0] = ls, pipeToken[1] = 2
     //so we need to change pipeToken[0] -> ls |2
     if( ori_np != -1){
@@ -390,7 +396,7 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
             struct numberpipe tmp;
             tmp.cnt = num ;
             tmp.fd = np_pipes_fd[0];
-            np.push_back( tmp );
+            user[cid].np.push_back( tmp );
 
             CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
        }else if( CmdToken.at( CmdToken.size()-1 )[0] == '|' ){
@@ -407,7 +413,7 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
             struct numberpipe tmp;
             tmp.cnt = num;
             tmp.fd = np_pipes_fd[0];
-            np.push_back( tmp );
+            user[cid].np.push_back( tmp );
 
             CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
         }
@@ -418,16 +424,16 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
             analyzeCmd( CmdToken, fd_in, fd_out, &pipes_fd[0], pipeType, ll, C);
         }
         if( C > 0 ){
-            close(fd0_list.at(C-1));
-            close(fd1_list.at(C-1));
+            close(user[cid].fd0_list.at(C-1));
+            close(user[cid].fd1_list.at(C-1));
         }
     }
     if(tt != -1){
         close(tt);
         while( waitpid(-1 , NULL, WNOHANG) > 0 );
     }else{
-        if( !pid_list.empty() ){
-            int pid = pid_list.back();
+        if( !user[cid].pid_list.empty() ){
+            int pid = user[cid].pid_list.back();
             waitpid(pid, NULL, 0);
         }
         while( waitpid(-1 , NULL, WNOHANG) > 0 );
@@ -437,10 +443,10 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
 vector<int> maintainNP(){
     vector<int> tmp;
     for( int i = 0; i < np.size(); i++ ){
-        np.at(i).cnt--;
+        user[cid].np.at(i).cnt--;
         if( np.at(i).cnt == 0){
-            tmp.push_back( np.at(i).fd );
-            np.erase( np.begin() + i );
+            tmp.push_back( user[cid].np.at(i).fd );
+            user[cid].np.erase( user[cid].np.begin() + i );
             i--;//cuz erase will remove element
         }
     }
@@ -486,7 +492,7 @@ void add_client(int sockfd, struct sockaddr_in address){
     user[n].ip = inet_ntoa(address.sin_addr);
     strcpy(user[n].path, "bin:.");
 }
-void broadcast( string  message){
+void broadcast( string  message ){
     for( int i = 1 ; i <= 30 ; i++ ){
         if(user[i].sock != -1){
             dup2(user[i].sock,STDOUT_FILENO);
