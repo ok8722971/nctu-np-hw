@@ -21,10 +21,11 @@ void execOneCmd( vector<string> );
 void execCmdBySeq( vector<string> ,int );
 vector<int> maintainNP();
 int toNum( string );
+int toNum2( string );
 int isNP( string );
 void shell();
 void initClientInfo();
-void add_client( int, struct sockaddr_in );
+int add_client( int, struct sockaddr_in );
 void broadcast( string );
 void print_welcome( int );
 
@@ -46,14 +47,14 @@ struct user_info{
     vector<int> pid_list;
     vector<int> fd0_list;
     vector<int> fd1_list;
-    unsigned short port;
-    char* ip;
+    string port;
+    string ip;
     char* path = (char *)malloc(100);
 };
 
 //global variable
 struct user_info user[31];
-int cid;//which client is served
+int sockfd,cid;//which client is served
 fd_set fds;
 
 vector<string> SplitWithSpace(const string &source){
@@ -66,7 +67,6 @@ int main( int argc, char* argv[]){
 
     initClientInfo();
 
-    int sockfd, childpid;
     struct sockaddr_in cli_addr, serv_addr;
     socklen_t clilen;
     //create socket
@@ -110,14 +110,14 @@ int main( int argc, char* argv[]){
             clilen = sizeof(cli_addr);
             newsockfd = accept(sockfd, (struct sockaddr*) &cli_addr, &clilen);
 
-            add_client(newsockfd, cli_addr);
+            int n = add_client(newsockfd, cli_addr);
             print_welcome(newsockfd);
             
-			string t;
-            t.assign(inet_ntoa(cli_addr.sin_addr));            
-            string tmp = "*** User '(no name)' entered from " + t + ":" + to_string(ntohs(cli_addr.sin_port)) +". ***";
+            string tmp = "*** User '(no name)' entered from " + user[n].ip + ":" + user[n].port +". ***";
             
 			broadcast(tmp);
+			dup2( user[n].sock, STDOUT_FILENO );
+			cout << "% " << flush;
         }
         for(int i = 1; i <= 30; i++){
             if( !FD_ISSET( user[i].sock, &fds) )
@@ -126,7 +126,9 @@ int main( int argc, char* argv[]){
 			//initial user environment
 			putenv(user[cid].path);
 			shell();
-        }
+			if(user[cid].sock !=-1)
+        		cout << "% " << flush;
+		}
 
     }
     close(sockfd);
@@ -139,7 +141,6 @@ void shell(){
     dup2( user[cid].sock, 1 );
     dup2( user[cid].sock, 2 );
     
-	cout << "% ";
 	string cmd;
 	getline(cin,cmd);
 	vector<string> tmpToken = SplitWithSpace(cmd);
@@ -190,8 +191,14 @@ vector<string> split( const string& str, const string& delim) {
 void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd, int pipeType, vector<int> tmp, int C){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
+		dup2( sockfd,0 );
+		dup2( sockfd,1 );
+		dup2( sockfd,2 );
 		close(user[cid].sock);
+		//FD_CLR(user[cid].sock, &fds);
+		string msg = "*** User " + user[cid].name + " left. ***";
 		user[cid].sock = -1;
+		broadcast(msg);
     }else if( CmdToken.at(0) == "setenv"){
         string tmp = CmdToken.at(1) + "=" + CmdToken.at(2);
         //putenv(tmp.c_str());
@@ -211,7 +218,60 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
             if( getenv(tmp_char) != NULL )
                 cout << getenv(tmp_char) << endl;
 		}
-    }else{
+    }else if( CmdToken.at(0) == "who" ){
+		dup2( user[cid].sock, STDOUT_FILENO );
+		cout << "<ID>	" << "<nickname>	" << "ip:port	" << "indicate me" << endl;
+		for( int i = 1; i <= 30 ; i++ ){
+			if( user[i].sock != -1 ){
+				if( i == cid ){
+					cout << i << "	" << user[i].name << "	" << user[i].ip << ":" << user[i].port	<< "	<-me" << endl;
+				}else{
+					cout << i << "  " << user[i].name << "  " << user[i].ip << ":" << user[i].port  << endl;
+				}	
+			}	
+		}
+	}else if(  CmdToken.at(0) == "tell" ){
+		int who = toNum2( CmdToken.at(1) );
+		if( user[who].sock != -1 ){
+			dup2( user[who].sock, STDOUT_FILENO );
+			string msg = "";
+			for( int i = 2; i < CmdToken.size(); i++ ){
+				msg += CmdToken.at(i);
+				if( i != CmdToken.size()-1)
+					msg += " ";	
+			}
+			cout << "*** " << user[cid].name << " told you ***: " << msg << endl;
+			dup2( user[cid].sock, STDOUT_FILENO );
+		}else{
+			cout << "*** Error: user #" << who << " does not exist yet. ***" << endl;	 
+		}
+	}else if( CmdToken.at(0) == "yell" ){
+		string msg = "*** " + user[cid].name +" yelled ***:";
+		for( int i = 1; i < CmdToken.size(); i++ ){
+			msg += CmdToken.at(i);
+			if( i != CmdToken.size()-1)
+				msg += " ";
+		}
+		int temp = user[cid].sock;
+		user[cid].sock = -1;
+		broadcast( msg );
+		user[cid].sock = temp;
+		dup2( user[cid].sock, STDOUT_FILENO );		
+	}else if( CmdToken.at(0) == "name" ){
+		bool flag = true;
+		for(int i = 1; i <= 30; i++){
+			if( user[i].name == CmdToken.at(1) )
+				flag = false;	
+		}
+		if( flag ){
+			user[cid].name = CmdToken.at(1);
+			string msg = "*** User from " + user[cid].ip + ":" + user[cid].port + "is named '" + CmdToken.at(1) + "'. ***";
+			broadcast( msg );
+			dup2( user[cid].sock, STDOUT_FILENO );
+		}else{
+			cout << "*** User '" << CmdToken.at(1)  <<"' already exists. ***" << endl;	
+		}				
+	}else{
         pid_t pid;
         while( ( pid = fork() ) < 0){//fork failed
             waitpid(-1, NULL, 0);
@@ -449,6 +509,7 @@ vector<int> maintainNP(){
     return tmp;
 }
 
+//this is for numberpipe
 int toNum(string s){
     int num = 0;
     for( int i = 1 ; i < s.size(); i++ ){
@@ -457,6 +518,15 @@ int toNum(string s){
     }
     return num;
 }
+//this is for tell
+int toNum2( string s ){
+	int num = 0;
+	for( int i = 0 ; i < s.size(); i++ ){
+		num *= 10;
+		num += s[i]-48;//ascii 0 is 48
+	}
+	return num;								
+} 
 
 int isNP(string s){
     for(int i = 0; i < s.size(); i++){
@@ -472,11 +542,13 @@ int isNP(string s){
     return ans;
 }
 
-void add_client(int sockfd, struct sockaddr_in address){
-    int n;
+int add_client(int sockfd, struct sockaddr_in address){
+    int n = 0;
     for( int i = 1; i <= 30 ; i++){
-        if( user[i].sock == -1 )
+        if( user[i].sock == -1 ){
             n = i;
+			break;
+		}
     }
     user[n].sock = sockfd;
     user[n].name = "(no name)";
@@ -484,9 +556,11 @@ void add_client(int sockfd, struct sockaddr_in address){
     user[n].pid_list.clear();
     user[n].fd0_list.clear();
     user[n].fd1_list.clear();
-    user[n].port = ntohs(address.sin_port);
-    user[n].ip = inet_ntoa(address.sin_addr);
+    user[n].port = to_string( ntohs(address.sin_port) );
+    user[n].ip.assign( inet_ntoa(address.sin_addr) );
     strcpy(user[n].path, "bin:.");
+
+	return n;
 }
 void broadcast( string  message ){
     for( int i = 1 ; i <= 30 ; i++ ){
