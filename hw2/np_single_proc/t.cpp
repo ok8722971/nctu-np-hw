@@ -18,7 +18,7 @@ void analyzeCmd ( vector<string>, int, int, int*, int, vector<int>, int );
 vector<string> split( const string&, const string& );
 void redirect( char*[], string );
 void execOneCmd( vector<string> );
-void execCmdBySeq( vector<string> ,int );
+void execCmdBySeq( string, vector<string> ,int );
 vector<int> maintainNP();
 int toNum( string );
 int toNum2( string );
@@ -36,8 +36,17 @@ void tell();
 
 
 struct numberpipe {
-   int cnt;//how many ins left
-   int fd;//which pipefd to fdin
+	int cnt;//how many ins left
+	int fd;//which pipefd to fdin
+};
+
+struct userpipe {
+	//id
+	int from;
+	int to;
+	//fd
+	int infd;
+	int outfd;	
 };
 
 struct user_info{
@@ -54,7 +63,10 @@ struct user_info{
 
 //global variable
 struct user_info user[31];
-int sockfd,cid;//which client is served
+vector<userpipe> up;
+int sockfd;//server sock
+int cid;//which client is served
+int dump;//devnull's fd
 fd_set fds;
 
 vector<string> SplitWithSpace(const string &source){
@@ -66,6 +78,8 @@ vector<string> SplitWithSpace(const string &source){
 int main( int argc, char* argv[]){
 
     initClientInfo();
+	
+	dump = open("/dev/null", O_RDWR);//use to dump trash or receive EOF
 
     struct sockaddr_in cli_addr, serv_addr;
     socklen_t clilen;
@@ -160,9 +174,9 @@ void shell(){
 			n = isNP( pipeToken.at( pipeToken.size() - 1 ) );
 		}
 		if( n == -1 ){
-			execCmdBySeq( pipeToken,-1 );
+			execCmdBySeq( tmp, pipeToken,-1 );
 		}else{
-			execCmdBySeq( pipeToken, n );
+			execCmdBySeq( tmp, pipeToken, n );
 		}
 	}
 }
@@ -191,6 +205,18 @@ vector<string> split( const string& str, const string& delim) {
 void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd, int pipeType, vector<int> tmp, int C){
     if( CmdToken.empty()){
     }else if( CmdToken.at(0) == "exit"){
+		//clear vector up first
+		for( int i = 0; i < up.size(); i++ ){
+			if( up.at(i).from == cid || up.at(i).to == cid ){
+				char buffer[2] = {'\0'};
+				int len;
+				while( (len = read( up.at(i).infd, buffer, 1 )) > 0  )	
+					write( dump, buffer, 1);
+			up.erase( up.begin() + i );
+			i--;
+			}	
+		}
+		
 		dup2( sockfd,0 );
 		dup2( sockfd,1 );
 		dup2( sockfd,2 );
@@ -226,7 +252,7 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
 				if( i == cid ){
 					cout << i << "	" << user[i].name << "	" << user[i].ip << ":" << user[i].port	<< "	<-me" << endl;
 				}else{
-					cout << i << "  " << user[i].name << "  " << user[i].ip << ":" << user[i].port  << endl;
+					cout << i << "	" << user[i].name << "	" << user[i].ip << ":" << user[i].port  << endl;
 				}	
 			}	
 		}
@@ -399,9 +425,9 @@ void execOneCmd(vector<string> CmdToken){
     }
 }
 
-void execCmdBySeq(vector<string> pipeToken , int ori_np ){
-    int tt = -1;
-    vector<int> tmp2 = maintainNP();
+void execCmdBySeq(string command, vector<string> pipeToken , int ori_np ){
+    int tt = -1;//these two name has no mean
+	vector<int> tmp2 = maintainNP();
     
 	//here may be problem
 	user[cid].pid_list.clear();
@@ -417,9 +443,99 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
         pipeToken.at( pipeToken.size() - 2 ) += s;
         pipeToken.erase( pipeToken.begin() + pipeToken.size() );
     }
-    int cmd_count = pipeToken.size();
-        int last_ins_fd = -1;//last instruction's fd
-        int pipes_fd[2];
+
+    //do user pipe here
+	int in_type = 0; //0 means no userpipe in , 1 means valid userpipe , 2 means invalid userpipe
+	int out_type = 0;//sama
+	int in_num = 0;//what num the userpipe is
+	int out_num = 0;
+	int in_index = 0;//record userpipe index 
+	vector<string> tmp;
+	//do <n first, only appear in first cmd
+	tmp.clear();
+	tmp = split(pipeToken[0]," ");
+	for (int i = 0 ; i < tmp.size() ; i++){
+		if( tmp.at(i).size() > 1 && tmp.at(i)[0] == '<' ){
+			//remove the <n part of pipeToken[0]
+			string s = tmp.at(0);;
+			for( int j = 1; j < tmp.size(); j++ ){
+				if( j == i) {continue;}
+				s += " ";
+				s += tmp.at(j); 	
+			}
+			pipeToken[0] = s;
+			
+			in_num = toNum( tmp.at(i) );
+			//check if sender exist
+			if( user[in_num].sock == -1 || in_num > 30 || in_num < 1){
+				string msg = "*** Error: user #" + to_string(in_num) + " does not exist yet. ***";	
+				cout << msg << endl;
+				in_type = 2;
+				break;
+			}
+			int tmp2 = 0;//check the pipe exist or not
+			for( int j = 0; j < up.size(); j++ ){
+				if ( up.at(j).to == cid && up.at(j).from == in_num )
+					in_index = j;
+					tmp2 = 1;	
+			}
+			if( tmp2 == 0 ){
+				in_type = 2;
+				cout << "*** Error: the pipe #" + to_string(in_num) + "->#" + to_string(cid) + " does not exist yet. ***" << endl;
+			}
+			else{
+				in_type = 1;
+				string msg = "*** " + user[cid].name + " (#" + to_string(cid) + ") just received from " + user[in_num].name +" (#" + to_string(in_num) + ") by '" + command + "' ***";
+				broadcast(msg);
+				dup2( user[cid].sock, STDOUT_FILENO ); 
+			}
+			break;
+		}	
+	}
+	// then do >n, it will only appear in last command
+	tmp.clear();
+	tmp = split(pipeToken[pipeToken.size()-1]," ");
+	for (int i = 0 ; i < tmp.size() ; i++){
+		if( tmp.at(i).size() > 1 && tmp.at(i)[0] == '>' ){
+			//remove the >n part
+			string s = tmp.at(0);;
+			for( int j = 1; j < tmp.size(); j++ ){
+				if( j == i) {continue;}
+				s += " ";
+			    s += tmp.at(j);
+			}
+			pipeToken[pipeToken.size()-1] = s;
+			
+			out_num = toNum( tmp.at(i) );
+			//check if receiver exist
+			if( user[out_num].sock == -1 || out_num > 30 || out_num < 1){
+				string msg = "*** Error: user #" + to_string(out_num) +" does not exist yet. ***";
+				cout << msg << endl;
+				out_type = 2;
+				break;
+			}
+			int tmp2 = 0;//check the pipe exist or not
+			for( int j = 0; j < up.size(); j++ ){
+				if ( up.at(j).from == cid && up.at(j).to == out_num )
+					tmp2 = 1;
+			}
+			if( tmp2 == 1 ){
+				out_type = 2;
+				cout << "*** Error: the pipe #" + to_string(out_num) + "->#" + to_string(cid) + " already exists. ***" << endl;
+			}
+			else{
+				out_type = 1;
+				string msg = "*** " + user[cid].name + " (#" + to_string(cid) + ") just piped '" + command + "' to " + user[out_num].name +" (#" + to_string(out_num) + ") ***";
+				broadcast(msg);
+				dup2( user[cid].sock, STDOUT_FILENO );	
+			}
+			break;
+		}
+	}
+		
+	int cmd_count = pipeToken.size();
+    int last_ins_fd = -1;//last instruction's fd
+    int pipes_fd[2];
     for (int C = 0; C < cmd_count; C++)
     {
         pipes_fd[0] = 0;
@@ -435,7 +551,7 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
         int pipeType = 0;
 
         vector<string> CmdToken = split( pipeToken[C], " ");
-        //do pipe analyzing here
+        //do number pipe analyzing here
         //ex: ls !2 >> we need to erase!2 and create a pipe to save data
         if( CmdToken.at( CmdToken.size()-1 )[0] == '!' ){
             int np_pipes_fd[2];
@@ -473,6 +589,41 @@ void execCmdBySeq(vector<string> pipeToken , int ori_np ){
 
             CmdToken.erase( CmdToken.begin() + CmdToken.size() - 1 );
         }
+
+		//userpipe here
+		if( C == 0 ){
+			if ( in_type == 2){
+				fd_in = dump;	
+			}
+			else if ( in_type == 1 ){ 
+				fd_in = up.at(in_index).infd;
+				up.erase( up.begin() + in_index );
+			}
+		}
+		if( C == cmd_count-1 ){
+			if( out_type == 1 ){	
+				//same as userpipe
+				int userpipe[2];
+				if (pipe(userpipe) == -1){
+					cerr << "can't create pipe" << endl;
+				}
+				fd_out = userpipe[1];
+				tt = fd_out;
+				
+				//record up to vector
+				struct userpipe tmp;
+				tmp.from = cid;
+				tmp.to = out_num;
+				tmp.infd = userpipe[0];
+				up.push_back( tmp ); 
+			}
+			else if( out_type == 2 ){
+				fd_out = dump;	
+			}
+		}
+
+
+
         if( C == 0 ){
             analyzeCmd( CmdToken, fd_in, fd_out, &pipes_fd[0], pipeType, tmp2, C);
         }else{
@@ -509,7 +660,7 @@ vector<int> maintainNP(){
     return tmp;
 }
 
-//this is for numberpipe
+//this is for numberpipe and userpipe
 int toNum(string s){
     int num = 0;
     for( int i = 1 ; i < s.size(); i++ ){
