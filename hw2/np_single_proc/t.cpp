@@ -98,7 +98,7 @@ int main( int argc, char* argv[]){
     if(bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) <0)
             cerr << "bind error";
 
-    listen(sockfd, 30);
+    listen(sockfd, 31);
     //kill zombie
     signal(SIGCHLD, SIG_IGN);
 
@@ -125,13 +125,15 @@ int main( int argc, char* argv[]){
             newsockfd = accept(sockfd, (struct sockaddr*) &cli_addr, &clilen);
 
             int n = add_client(newsockfd, cli_addr);
-            print_welcome(newsockfd);
-            
-            string tmp = "*** User '(no name)' entered from " + user[n].ip + ":" + user[n].port +". ***";
-            
-			broadcast(tmp);
-			dup2( user[n].sock, STDOUT_FILENO );
-			cout << "% " << flush;
+			if(n>0){
+				print_welcome(newsockfd);
+				
+				string tmp = "*** User '(no name)' entered from " + user[n].ip + ":" + user[n].port +". ***";
+				
+				broadcast(tmp);
+				dup2( user[n].sock, STDOUT_FILENO );
+				cout << "% " << flush;
+			}
         }
         for(int i = 1; i <= 30; i++){
             if( !FD_ISSET( user[i].sock, &fds) )
@@ -139,6 +141,13 @@ int main( int argc, char* argv[]){
 			cid = i; //user id i is using
 			//initial user environment
 			putenv(user[cid].path);
+			/*string temp;
+			temp.assign (user[cid].path);
+			string temp2 = "PATH=" + temp;
+			char* tmp_char2 = new char[temp2.size() + 1];
+			copy(temp2.begin(),temp2.end(),tmp_char2);
+			tmp_char2[temp2.size()] = '\0';	
+			putenv(tmp_char2);*/
 			shell();
 			if(user[cid].sock !=-1)
         		cout << "% " << flush;
@@ -221,8 +230,10 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
 		dup2( sockfd,1 );
 		dup2( sockfd,2 );
 		close(user[cid].sock);
-		//FD_CLR(user[cid].sock, &fds);
-		string msg = "*** User " + user[cid].name + " left. ***";
+		//
+		FD_CLR(user[cid].sock, &fds);
+		//
+		string msg = "*** User '" + user[cid].name + "' left. ***";
 		user[cid].sock = -1;
 		broadcast(msg);
     }else if( CmdToken.at(0) == "setenv"){
@@ -246,7 +257,7 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
 		}
     }else if( CmdToken.at(0) == "who" ){
 		dup2( user[cid].sock, STDOUT_FILENO );
-		cout << "<ID>	" << "<nickname>	" << "ip:port	" << "indicate me" << endl;
+		cout << "<ID>	" << "<nickname>	" << "<IP:port>	" << "<indicate me>" << endl;
 		for( int i = 1; i <= 30 ; i++ ){
 			if( user[i].sock != -1 ){
 				if( i == cid ){
@@ -272,16 +283,13 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
 			cout << "*** Error: user #" << who << " does not exist yet. ***" << endl;	 
 		}
 	}else if( CmdToken.at(0) == "yell" ){
-		string msg = "*** " + user[cid].name +" yelled ***:";
+		string msg = "*** " + user[cid].name +" yelled ***: ";
 		for( int i = 1; i < CmdToken.size(); i++ ){
 			msg += CmdToken.at(i);
 			if( i != CmdToken.size()-1)
 				msg += " ";
 		}
-		int temp = user[cid].sock;
-		user[cid].sock = -1;
 		broadcast( msg );
-		user[cid].sock = temp;
 		dup2( user[cid].sock, STDOUT_FILENO );		
 	}else if( CmdToken.at(0) == "name" ){
 		bool flag = true;
@@ -291,7 +299,7 @@ void analyzeCmd ( vector<string> CmdToken, int fd_in, int fd_out, int* pipes_fd,
 		}
 		if( flag ){
 			user[cid].name = CmdToken.at(1);
-			string msg = "*** User from " + user[cid].ip + ":" + user[cid].port + "is named '" + CmdToken.at(1) + "'. ***";
+			string msg = "*** User from " + user[cid].ip + ":" + user[cid].port + " is named '" + user[cid].name + "'. ***";
 			broadcast( msg );
 			dup2( user[cid].sock, STDOUT_FILENO );
 		}else{
@@ -475,9 +483,10 @@ void execCmdBySeq(string command, vector<string> pipeToken , int ori_np ){
 			}
 			int tmp2 = 0;//check the pipe exist or not
 			for( int j = 0; j < up.size(); j++ ){
-				if ( up.at(j).to == cid && up.at(j).from == in_num )
+				if ( up.at(j).to == cid && up.at(j).from == in_num ){
 					in_index = j;
-					tmp2 = 1;	
+					tmp2 = 1;
+				}
 			}
 			if( tmp2 == 0 ){
 				in_type = 2;
@@ -521,7 +530,7 @@ void execCmdBySeq(string command, vector<string> pipeToken , int ori_np ){
 			}
 			if( tmp2 == 1 ){
 				out_type = 2;
-				cout << "*** Error: the pipe #" + to_string(out_num) + "->#" + to_string(cid) + " already exists. ***" << endl;
+				cout << "*** Error: the pipe #" + to_string(cid) + "->#" + to_string(out_num) + " already exists. ***" << endl;
 			}
 			else{
 				out_type = 1;
@@ -701,6 +710,9 @@ int add_client(int sockfd, struct sockaddr_in address){
 			break;
 		}
     }
+	if( n == 0){
+		return 0;	
+	}
     user[n].sock = sockfd;
     user[n].name = "(no name)";
     user[n].np.clear();
@@ -709,7 +721,7 @@ int add_client(int sockfd, struct sockaddr_in address){
     user[n].fd1_list.clear();
     user[n].port = to_string( ntohs(address.sin_port) );
     user[n].ip.assign( inet_ntoa(address.sin_addr) );
-    strcpy(user[n].path, "bin:.");
+    strcpy(user[n].path, "PATH=bin:.");
 
 	return n;
 }
@@ -724,7 +736,7 @@ void broadcast( string  message ){
 
 void print_welcome( int sock ){
     dup2(sock,STDOUT_FILENO);
-    cout << "***************************************" << endl;
-    cout << "** Welcome to the information server **" << endl;
-    cout << "***************************************" << endl;
+    cout << "****************************************" << endl;
+    cout << "** Welcome to the information server. **" << endl;
+    cout << "****************************************" << endl;
 }
