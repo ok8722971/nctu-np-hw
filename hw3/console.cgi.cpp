@@ -44,8 +44,10 @@ string replaceEscape(string s) {
     s = replaceAll(s, "&", "&amp");
     s = replaceAll(s, "\"", "&quot");
     s = replaceAll(s, "'", "&#39");
+	s = replaceAll(s, "<", "&lt");
+	s = replaceAll(s, ">", "&gt");
     s = replaceAll(s, "\r", "");
-    s = replaceAll(s, "\n", "");
+    s = replaceAll(s, "\n", "<br>");
     return s;
 }
 
@@ -56,13 +58,12 @@ public:
         :socket_(io_context){
     }
     void outputResult(int id, string msg) {
-        msg = replaceAll(msg, "\n", "<br>");
         msg = replaceEscape(msg);
         cout << "<script>document.getElementById('" << id << "').innerHTML += '" << msg << "'; </script>" << endl;
     }
     void outputCmd(int id, string msg) {
         msg = replaceAll(msg, "\n", "<br>");
-        msg = replaceEscape(msg);
+        msg = replaceAll(msg, "\r", "");
         cout << "<script>document.getElementById('" << id << "').innerHTML += '<font color=\"blue\">" << msg << "</font>'</script>" << endl;
     }
 
