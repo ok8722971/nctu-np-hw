@@ -19,7 +19,7 @@ enum { max_length = 2048 };
 class client
 {
 public:
-    client(boost::asio::io_context& io_context, boost::asio::ip::address ip, short unsigned int port, string filename)
+    client(boost::asio::io_context& io_context, string ip, string port, string filename)
         : socket_(io_context), ip_(ip), port_(port), filename_(filename){
 
         fstream file;
@@ -146,8 +146,8 @@ private:
     tcp::resolver::results_type endpoints_;
     tcp::socket socket_;
     string input_buffer_;
-    boost::asio::ip::address ip_;
-    short unsigned int port_;
+    string ip_;
+    string port_;
     string filename_;
     size_t i = 0;//remember which cmd i read
     vector<string> cmd_;
@@ -172,21 +172,16 @@ vector<string> split( const string& str, const string& delim) {
 int main(int argc, char* argv[]){
     try{
         cout << "Content-type: text/html" << endl << endl;
-
         string tmp(getenv("QUERY_STRING"));
         vector<string> tmp2 = split( tmp, "=" );
 
         boost::asio::io_context io_context;
         tcp::resolver r(io_context);
 
-        tcp::resolver::query query(tmp2.at(1).substr(0,tmp2.at(1).size()-3).c_str()
-                                ,tmp2.at(2).substr(0,tmp2.at(2).size()-3).c_str());
-        tcp::resolver::iterator itbegin = r.resolve(query),itEnd;
-        tcp::endpoint pt = itbegin->endpoint();
-
-
-        client c1(io_context, pt.address(), pt.port(),
-                        tmp2.at(3).substr(0,tmp2.at(3).size()-3));
+        client c1(io_context
+                , tmp2.at(1).substr(0,tmp2.at(1).size()-3)
+                , tmp2.at(2).substr(0,tmp2.at(2).size()-3)
+                , tmp2.at(3).substr(0,tmp2.at(3).size()-3));
         /*client c2(io_context);
         client c3(io_context);
         client c4(io_context);
