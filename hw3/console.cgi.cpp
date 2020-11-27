@@ -6,29 +6,42 @@
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/regex.hpp>
+#include <fstream>
 
 using boost::asio::ip::tcp;
 using std::placeholders::_1;
 using std::placeholders::_2;
 using namespace std;
 
-enum { max_length = 1024 };
+enum { max_length = 2048 };
 
 
 class client
 {
 public:
-    client(boost::asio::io_context& io_context)
-        : socket_(io_context){
+    client(boost::asio::io_context& io_context, boost::asio::ip::address ip, short unsigned int port, string filename)
+        : socket_(io_context), ip_(ip), port_(port), filename_(filename){
+
+        fstream file;
+        char buffer[2000];
+        filename_ = "test_case/" + filename_ ;
+        file.open(filename_.c_str(), ios::in);
+        do{
+            file.getline(buffer, sizeof(buffer));
+            cmd_.push_back(buffer);
+        }while(!file.eof());
+        file.close();
+        cout << ip << ":" << port << "<br>" << endl;
     }
+
     void start(tcp::resolver::results_type endpoints){
         endpoints_ = endpoints;
         start_connect(endpoints_.begin());
     }
     void stop(){
         stopped_ = true;
-        boost::system::error_code ignored_error;
-        socket_.close(ignored_error);
+        //boost::system::error_code ignored_error;
+        //socket_.close(ignored_error);
     }
 private:
     void start_connect(tcp::resolver::results_type::iterator endpoint_iter)  {
@@ -65,53 +78,66 @@ private:
 
     void start_read(){
         boost::asio::async_read_until(socket_,
-          boost::asio::dynamic_buffer(input_buffer_), boost::regex("[\r\n%]"),
+          boost::asio::dynamic_buffer(input_buffer_), boost::regex("[%]"),
           std::bind(&client::handle_read, this, _1, _2));
     }
-
+    string ReplaceAll(string s, string from, string to) {
+    size_t pos = 0;
+    while((pos = s.find(from, pos)) != string::npos) {
+        s.replace(pos, from.length(), to);
+        pos += to.length();
+    }
+    return s;
+}
     void handle_read(const boost::system::error_code& error, std::size_t n){
-        if (stopped_) return;
+        if (stopped_) {
+            return;
+        }
         if (!error){
             std::string line(input_buffer_.substr(0, n - 1));
             input_buffer_.erase(0, n);
-            if (!line.empty()){
-                cout << line << "<br>";
-                cout.flush();
-                start_read();
-            }else{
-                cout << "%";
+            line = ReplaceAll(line, std::string("\n"), std::string("<br>"));
+            if( !line.empty() ){
+                cout << line ;
+                cout << "% ";
                 cout.flush();
                 start_write();
+            }else {
+                start_read();
             }
-        }
-        else{
-            cout << "Error on receive: " << error.message() << "\n";
-            stop();
         }
     }
 
     void start_write(){
-        if (stopped_) return;
 
-        char request[max_length];
-        strcpy(request, "ls\n");
-        size_t request_length = strlen(request);
-		cout << request << "<br>";
-		cout.flush();
-		boost::asio::async_write(socket_, boost::asio::buffer(request, request_length),
+        if(stopped_){
+            return;
+        }
+        if( cmd_.at(i) == "exit" || cmd_.at(i) == "exit\r"){
+            stop();
+        }
+
+        char cmd[max_length];
+        if(cmd_.at(i) == "exit\r") cmd_.at(i) == "exit";
+        cmd_.at(i) = cmd_.at(i) + "\n";
+        strcpy(cmd, cmd_.at(i).c_str());
+        i++;
+        size_t cmd_length = strlen(cmd);
+        cout << cmd << "<br>";
+        cout.flush();
+        boost::asio::async_write(socket_, boost::asio::buffer(cmd, cmd_length),
             bind(&client::handle_write, this, _1));
+
 
     }
 
     void handle_write(const boost::system::error_code& error){
-        if (stopped_) return;
+        /*if (stopped_){
+            return;
+        }*/
 
         if (!error){
             start_read();
-        }
-        else{
-            cout << "Error on heartbeat: " << error.message() << "\n";
-            stop();
         }
     }
 
@@ -119,18 +145,55 @@ private:
     bool stopped_ = false;
     tcp::resolver::results_type endpoints_;
     tcp::socket socket_;
-    std::string input_buffer_;
+    string input_buffer_;
+    boost::asio::ip::address ip_;
+    short unsigned int port_;
+    string filename_;
+    size_t i = 0;//remember which cmd i read
+    vector<string> cmd_;
 };
+
+vector<string> split( const string& str, const string& delim) {
+	vector<string> res;
+	if("" == str) return res;
+	char* strs = new char[str.length() + 1] ;
+	strcpy(strs, str.c_str());
+	char* d = new char[delim.length() + 1];
+	strcpy(d, delim.c_str());
+	char*p = strtok(strs, d);
+	while(p){
+		string s = p;
+		res.push_back(s);
+		p = strtok(NULL, d);
+	}
+	return res;
+}
 
 int main(int argc, char* argv[]){
     try{
         cout << "Content-type: text/html" << endl << endl;
 
+        string tmp(getenv("QUERY_STRING"));
+        vector<string> tmp2 = split( tmp, "=" );
+
         boost::asio::io_context io_context;
         tcp::resolver r(io_context);
-        client c(io_context);
 
-        c.start(r.resolve("nplinux12.cs.nctu.edu.tw", "8763"));
+        tcp::resolver::query query(tmp2.at(1).substr(0,tmp2.at(1).size()-3).c_str()
+                                ,tmp2.at(2).substr(0,tmp2.at(2).size()-3).c_str());
+        tcp::resolver::iterator itbegin = r.resolve(query),itEnd;
+        tcp::endpoint pt = itbegin->endpoint();
+
+
+        client c1(io_context, pt.address(), pt.port(),
+                        tmp2.at(3).substr(0,tmp2.at(3).size()-3));
+        /*client c2(io_context);
+        client c3(io_context);
+        client c4(io_context);
+        client c5(io_context);*/
+
+        c1.start(r.resolve( tmp2.at(1).substr(0,tmp2.at(1).size()-3).c_str()
+                            , tmp2.at(2).substr(0,tmp2.at(2).size()-3).c_str()));
 
         io_context.run();
     }
