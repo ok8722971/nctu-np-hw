@@ -15,6 +15,39 @@ using namespace std;
 
 enum { max_length = 2048 };
 
+string replaceAll(string s, string from, string to) {
+    size_t pos = 0;
+    while ((pos = s.find(from, pos)) != string::npos) {
+        s.replace(pos, from.length(), to);
+        pos += to.length();
+    }
+    return s;
+}
+
+vector<string> split(const string& str, const string& delim) {
+    vector<string> res;
+    if ("" == str) return res;
+    char* strs = new char[str.length() + 1];
+    strcpy(strs, str.c_str());
+    char* d = new char[delim.length() + 1];
+    strcpy(d, delim.c_str());
+    char* p = strtok(strs, d);
+    while (p) {
+        string s = p;
+        res.push_back(s);
+        p = strtok(NULL, d);
+    }
+    return res;
+}
+
+string replaceEscape(string s) {
+    s = replaceAll(s, "&", "&amp");
+    s = replaceAll(s, "\"", "&quot");
+    s = replaceAll(s, "'", "&#39");
+    s = replaceAll(s, "\r", "");
+    s = replaceAll(s, "\n", "");
+    return s;
+}
 
 class client
 {
@@ -22,7 +55,16 @@ public:
     client(boost::asio::io_context& io_context)
         :socket_(io_context){
     }
-    
+    void outputResult(int id, string msg) {
+        msg = replaceAll(msg, "\n", "<br>");
+        msg = replaceEscape(msg);
+        cout << "<script>document.getElementById('" << id << "').innerHTML += '" << msg << "'; </script>" << endl;
+    }
+    void outputCmd(int id, string msg) {
+        msg = replaceAll(msg, "\n", "<br>");
+        msg = replaceEscape(msg);
+        cout << "<script>document.getElementById('" << id << "').innerHTML += '<font color=\"blue\">" << msg << "</font>'</script>" << endl;
+    }
 
     void start(tcp::resolver::results_type endpoints){
         fstream file;
@@ -34,8 +76,8 @@ public:
             cmd_.push_back(buffer);
         }while(!file.eof());
         file.close();
-        cout << ip_ << ":" << port_ << "<br>" << endl;
-
+        outputCmd(id_, ip_ + ":" + port_ + "\n");
+        //cout << ip_ << ":" << port_ << "<br>" << endl;
         endpoints_ = endpoints;
         start_connect(endpoints_.begin());
     }
@@ -82,30 +124,24 @@ private:
           boost::asio::dynamic_buffer(input_buffer_), boost::regex("[%]"),
           std::bind(&client::handle_read, this, _1, _2));
     }
-    string ReplaceAll(string s, string from, string to) {
-    size_t pos = 0;
-    while((pos = s.find(from, pos)) != string::npos) {
-        s.replace(pos, from.length(), to);
-        pos += to.length();
-    }
-    return s;
-}
+    
+
     void handle_read(const boost::system::error_code& error, std::size_t n){
         if (stopped_) {
             return;
         }
         if (!error){
-            std::string line(input_buffer_.substr(0, n - 1));
-            input_buffer_.erase(0, n);
-            line = ReplaceAll(line, std::string("\n"), std::string("<br>"));
+            std::string line(input_buffer_);
+            
             if( !line.empty() ){
-                cout << line ;
-                cout << "% ";
-                cout.flush();
+                outputResult(id_, line);
+                input_buffer_.clear();
                 start_write();
             }else {
+                input_buffer_.clear();
                 start_read();
             }
+            
         }
     }
 
@@ -118,14 +154,12 @@ private:
             stop();
         }
 
-        char cmd[max_length];
-        if(cmd_.at(i) == "exit\r") cmd_.at(i) == "exit";
+        outputCmd(id_, cmd_.at(i) + "\n");
         cmd_.at(i) = cmd_.at(i) + "\n";
-        strcpy(cmd, cmd_.at(i).c_str());
+        cmd = cmd_.at(i);
         i++;
-        size_t cmd_length = strlen(cmd);
-        cout << cmd << "<br>";
-        cout.flush();
+        size_t cmd_length = cmd.size();
+
         boost::asio::async_write(socket_, boost::asio::buffer(cmd, cmd_length),
             bind(&client::handle_write, this, _1));
 
@@ -138,6 +172,7 @@ private:
         }*/
 
         if (!error){
+            cmd.clear();
             start_read();
         }
     }
@@ -146,33 +181,20 @@ public:
     bool stopped_ = false;
     tcp::resolver::results_type endpoints_;
     tcp::socket socket_;
+    int id_;
     string input_buffer_;
     string ip_;
     string port_;
     string filename_;
     size_t i = 0;//remember which cmd i read
     vector<string> cmd_;
+    string cmd;
 };
-
-vector<string> split( const string& str, const string& delim) {
-	vector<string> res;
-	if("" == str) return res;
-	char* strs = new char[str.length() + 1] ;
-	strcpy(strs, str.c_str());
-	char* d = new char[delim.length() + 1];
-	strcpy(d, delim.c_str());
-	char*p = strtok(strs, d);
-	while(p){
-		string s = p;
-		res.push_back(s);
-		p = strtok(NULL, d);
-	}
-	return res;
-}
 
 int main(int argc, char* argv[]){
     try {
-        cout << "Content-type: text/html" << endl << endl;
+        cout << "Content-type: text/html" << endl << endl; 
+    
         string tmp(getenv("QUERY_STRING"));
         vector<string> tmp2 = split(tmp, "=");
         if (tmp2.size() == 16) tmp2.at(15) = tmp2.at(15) + "txt";
@@ -182,10 +204,12 @@ int main(int argc, char* argv[]){
         
 
         for (int k = 0; k < 5; k++){
+            cout << "<pre id = '" << k <<"' ></pre>" << endl;
             if (tmp2.at(k*3+1).substr(0, tmp2.at(k*3+1).size() - 3).size() > 0) {
                 c[k].ip_ = tmp2.at(k*3+1).substr(0, tmp2.at(k*3+1).size() - 3);
                 c[k].port_ = tmp2.at(k*3+2).substr(0, tmp2.at(k*3+2).size() - 3);
                 c[k].filename_ = tmp2.at(k*3+3).substr(0, tmp2.at(k*3+3).size() - 3);
+                c[k].id_ = k;
 
                 c[k].start(r.resolve(
                     tmp2.at(k*3+1).substr(0, tmp2.at(k*3+1).size() - 3).c_str()
