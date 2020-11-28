@@ -62,8 +62,7 @@ public:
         cout << "<script>document.getElementById('" << id << "').innerHTML += '" << msg << "'; </script>" << endl;
     }
     void outputCmd(int id, string msg) {
-        msg = replaceAll(msg, "\n", "<br>");
-        msg = replaceAll(msg, "\r", "");
+        msg = replaceEscape(msg);
         cout << "<script>document.getElementById('" << id << "').innerHTML += '<font color=\"blue\">" << msg << "</font>'</script>" << endl;
     }
 
@@ -125,7 +124,7 @@ private:
           boost::asio::dynamic_buffer(input_buffer_), boost::regex("[%]"),
           std::bind(&client::handle_read, this, _1, _2));
     }
-    
+
 
     void handle_read(const boost::system::error_code& error, std::size_t n){
         if (stopped_) {
@@ -133,7 +132,7 @@ private:
         }
         if (!error){
             std::string line(input_buffer_);
-            
+
             if( !line.empty() ){
                 outputResult(id_, line);
                 input_buffer_.clear();
@@ -142,7 +141,7 @@ private:
                 input_buffer_.clear();
                 start_read();
             }
-            
+
         }
     }
 
@@ -194,15 +193,15 @@ public:
 
 int main(int argc, char* argv[]){
     try {
-        cout << "Content-type: text/html" << endl << endl; 
-    
+        cout << "Content-type: text/html" << endl << endl;
+
         string tmp(getenv("QUERY_STRING"));
         vector<string> tmp2 = split(tmp, "=");
         if (tmp2.size() == 16) tmp2.at(15) = tmp2.at(15) + "txt";
         boost::asio::io_context io_context;
         tcp::resolver r(io_context);
         client c[5] = { client(io_context),client(io_context), client(io_context), client(io_context), client(io_context) };
-        
+
 
         for (int k = 0; k < 5; k++){
             cout << "<pre id = '" << k <<"' ></pre>" << endl;
@@ -219,7 +218,7 @@ int main(int argc, char* argv[]){
                 break;
             }
         }
-        
+
         io_context.run();
     }
     catch (std::exception& e){

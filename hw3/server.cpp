@@ -105,8 +105,7 @@ private:
                 	dup2(sock, STDIN_FILENO);
                 	dup2(sock, STDOUT_FILENO);
                 	dup2(sock, STDERR_FILENO);
-                	socket_.close();
-                	if(execlp(exec, exec, NULL) < 0) {
+					if(execlp(exec, exec, NULL) < 0) {
 	                	cerr << "execlp failed" << endl;
 	            	}
 				}else{
