@@ -104,7 +104,7 @@ private:
                 	int sock = socket_.native_handle();
                 	dup2(sock, STDIN_FILENO);
                 	dup2(sock, STDOUT_FILENO);
-                	dup2(sock, STDERR_FILENO);
+                	//dup2(sock, STDERR_FILENO);
 					if(execlp(exec, exec, NULL) < 0) {
 	                	cerr << "execlp failed" << endl;
 	            	}
