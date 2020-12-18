@@ -1,14 +1,16 @@
-#include <boost/asio.hpp>
-#include <string.h>
-#include <cstdlib>
-#include <iostream>
-#include <memory>
-#include <utility>
+#include <bits/stdc++.h>
+#include <unistd.h>
+#include <string>
 #include <vector>
+#include <algorithm>
+#include <iostream>
+#include <boost/asio.hpp>
+#include <boost/regex.hpp>
 #include <fstream>
 
 boost::asio::io_context io_context;
-
+using std::placeholders::_1;
+using std::placeholders::_2;
 using boost::asio::ip::tcp;
 using namespace std;
 
@@ -24,6 +26,8 @@ struct info{//record request information
 
 /*global variable*/
 struct info ginfo;
+tcp::socket *csock;
+tcp::socket *ssock;
 /**/
 
 void show_message() {
@@ -40,6 +44,8 @@ void show_message() {
 	else
 		cout << "<Reply>: Reject" << endl;
 }
+void do_nothing(const boost::system::error_code& error) {}
+
 vector<string> split(const string& str, const string& delim) {
 	vector<string> res;
 	if ("" == str) return res;
@@ -55,6 +61,119 @@ vector<string> split(const string& str, const string& delim) {
 	}
 	return res;
 }
+
+class client{
+public:
+	client(boost::asio::io_context& io_context)
+		:socket_(io_context) {
+	}
+
+	void start() {
+		tcp::resolver r(io_context);
+		tcp::resolver::results_type endpoints = r.resolve(ginfo.dst_ip.c_str(), ginfo.dst_port.c_str());
+		endpoints_ = endpoints;
+		try {
+			start_connect(endpoints_.begin());
+		}
+		catch (const exception& e) {
+			cout << e.what() << endl;
+		}
+	}
+private:
+	void start_connect(tcp::resolver::results_type::iterator endpoint_iter) {
+		if (endpoint_iter != endpoints_.end()) {
+			socket_.async_connect(endpoint_iter->endpoint(),
+				std::bind(&client::handle_connect, this, _1, endpoint_iter));
+		}
+	}
+	void handle_connect(const boost::system::error_code& error,
+		tcp::resolver::results_type::iterator endpoint_iter) {
+
+		if (!socket_.is_open()) {
+			std::cout << "Connect timed out<br>";
+			start_connect(++endpoint_iter);
+		}
+
+		else if (error) {
+			std::cout << "Connect error: " << error.message() << "\n";
+
+			socket_.close();
+
+			start_connect(++endpoint_iter);
+		}
+
+		else {
+			start_read();
+			start_read2();
+		}
+	}
+	void start_read(){
+		memset(data_, 0, sizeof(data_));
+		socket_.async_read_some(
+			boost::asio::buffer(data_, max_length),
+			[this](boost::system::error_code ec, std::size_t length) {
+			if (!ec) {
+				do_write(length);
+			}
+			else {
+				sd = true;
+				if (cd) {
+					(*csock).close();
+					(*ssock).close();
+				}
+				//cout << "do_read ec:" << ec << endl;
+			}
+		});
+	}
+	void do_write(std::size_t length){
+		boost::asio::async_write(*csock, boost::asio::buffer(data_, length),
+			[this](boost::system::error_code ec, std::size_t /*length2*/) {
+			if (!ec) {
+				start_read();
+			}
+			else {
+				cout << "do_write ec:" <<ec << endl;
+			}
+		});
+	}
+	void start_read2() {
+		memset(data2_, 0, sizeof(data2_));
+		(*csock).async_read_some(
+			boost::asio::buffer(data2_, max_length),
+			[this](boost::system::error_code ec, std::size_t length) {
+			if (!ec) {
+				do_write2(length);
+			}
+			else {
+				//cout << "do_read2 ec:" << ec << endl;
+				cd = true;
+				if (sd) {
+					(*csock).close();
+					(*ssock).close();
+				}
+			}
+		});
+	}
+	void do_write2(std::size_t length) {
+		boost::asio::async_write(socket_, boost::asio::buffer(data2_, length),
+			[this](boost::system::error_code ec, std::size_t /*length2*/) {
+			if (!ec) {
+				start_read2();
+			}
+			else {
+				cout << "do_write2 ec:" << ec << endl;
+			}
+		});
+	}
+public:
+	bool cd = false;//client done
+	bool sd = false;//server done
+	tcp::resolver::results_type endpoints_;
+	tcp::socket socket_;
+	enum { max_length = 10000 };
+	char data_[max_length];
+	char data2_[max_length];
+};
 void firewall() {
 	ginfo.accept = false;//false at first
 	fstream file;
@@ -83,8 +202,55 @@ void firewall() {
 	}
 }
 
+void reply_client() {
+	unsigned char res[8];
+	res[0] = 0;
+	if (ginfo.accept) res[1] = 90;
+	else res[1] = 91;
+	//res[2] = stoi(ginfo.dst_port) / 256;
+	//res[3] = stoi(ginfo.dst_port) % 256;
+    res[2] = 0;
+	res[3] = 0;
+    res[4] = 0;
+	res[5] = 0;
+	res[6] = 0;
+	res[7] = 0;
+	//vector<string> tmp = split(ginfo.dst_ip, ".");
+	//res[4] = (unsigned char)stoi(tmp.at(0)) >> 24;
+	//res[5] = ((unsigned char)stoi(tmp.at(1)) >> 16) & 0xFF;
+	//res[6] = ((unsigned char)stoi(tmp.at(2)) >> 8) & 0xFF;
+	//res[7] = (unsigned char)stoi(tmp.at(3)) & 0xFF;
+	/*if(ginfo.mode == 2){
+		vector<string> tmp = split(ginfo.dst_ip, ".");
 
+		res[4] = (unsigned char)stoi(tmp.at(0)) >> 24;
+		res[5] = ((unsigned char)stoi(tmp.at(1)) >> 16) & 0xFF;
+		res[6] = ((unsigned char)stoi(tmp.at(2)) >> 8) & 0xFF;
+		res[7] = (unsigned char)stoi(tmp.at(3)) & 0xFF;
+	}else{
+		res[4] = 0;
+		res[5] = 0;
+		res[6] = 0;
+		res[7] = 0;
+	}*/
 
+	boost::asio::async_write(*csock, boost::asio::buffer(res, 8),
+		std::bind(do_nothing, std::placeholders::_1));
+
+}
+
+void connect() {
+	if (ginfo.mode == 1) {//connect mode
+		//std::make_shared<client>(io_context)->start();
+		//io_context.run();
+		client c(io_context);
+		c.start();
+		io_context.run();
+	}
+	else {//bind mode
+
+	}
+}
 
 class session
 	: public std::enable_shared_from_this<session> {
@@ -108,21 +274,23 @@ private:
 				int pid = fork();
 				if (pid == 0) {
 					io_context.notify_fork(boost::asio::io_context::fork_child);
+					//save client sock to global variable
+					csock = &socket_;
 					//set info here
 					ginfo.mode = data_[1];
 					ginfo.src_ip = socket_.remote_endpoint().address().to_string();
 					ginfo.src_port = to_string(socket_.remote_endpoint().port());
 					ginfo.dst_ip = to_string(data_[4]) + "." + to_string(data_[5]) + "." + to_string(data_[6]) + "." + to_string(data_[7]);
-					ginfo.dst_port = to_string((data_[2] << 8 | data_[3]));
-					//socks4a 
-					if (to_string(data_[4]) == "0" && to_string(data_[5]) == "0" && to_string(data_[6]) == "0" && to_string(data_[7]) != "0") {
+					ginfo.dst_port = to_string(data_[2] << 8 | data_[3]);
+					//socks4a
+					if ((to_string(data_[4]) == "0") && (to_string(data_[5]) == "0") && (to_string(data_[6]) == "0") && (to_string(data_[7]) != "0")) {
 						string h = "";
 						for (size_t i = 9; i < sizeof(data_); i++) {
 							if ((int)data_[i] == 0 ) break;
 							h += data_[i];
 							//cout << i << ": " << data_[i];
 						}
-						
+
 						tcp::resolver resolver(io_context);
 						tcp::resolver::query query(h.c_str(), ginfo.dst_port.c_str());
 						tcp::resolver::iterator it = resolver.resolve(query);
@@ -132,39 +300,31 @@ private:
 							if (addr.is_v6())	continue;
 							else {
 								ginfo.dst_ip = addr.to_string();
+								break;
 							}
 						}
 					}
-					
+
 					//firewall
 					firewall();
+					//show message for hw request
 					show_message();
+					//reply client
+					reply_client();
 					//do_write();
+					connect();
 				}
 				else {
 					io_context.notify_fork(boost::asio::io_context::fork_parent);
-					//socket_.close();
+					socket_.close();
 				}
-				
-			}
-		});
-	}
 
-	void do_write() {
-		auto self(shared_from_this());
-		boost::asio::async_write(socket_, boost::asio::buffer(status, strlen(status)),
-			[this, self](boost::system::error_code ec, std::size_t /*length*/) {
-			if (!ec) {
-				
-
-				//do_read();
 			}
 		});
 	}
 
 	tcp::socket socket_;
 	enum { max_length = 1024 };
-	char status[20] = "HTTP/1.1 200 OK\n";
 	unsigned char data_[max_length];
 };
 
@@ -183,7 +343,6 @@ private:
 				// create an object(session) and call its start() fuction
 				std::make_shared<session>(std::move(socket))->start();
 			}
-
 			do_accept();
 		});
 	}
@@ -197,9 +356,7 @@ int main(int argc, char* argv[]) {
 			std::cerr << "Usage: socks_server <port>\n";
 			return 1;
 		}
-
 		server s(std::atoi(argv[1]));
-
 		io_context.run();
 	}
 	catch (std::exception& e) {
