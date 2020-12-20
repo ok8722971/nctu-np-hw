@@ -7,6 +7,7 @@
 #include <boost/asio.hpp>
 #include <boost/regex.hpp>
 #include <fstream>
+#include <time.h>  
 
 boost::asio::io_context io_context;
 using std::placeholders::_1;
@@ -27,7 +28,7 @@ struct info{//record request information
 /*global variable*/
 struct info ginfo;
 tcp::socket *csock;
-tcp::socket *ssock;
+int gport;//for bind mode
 /**/
 
 void show_message() {
@@ -119,7 +120,7 @@ private:
 				sd = true;
 				if (cd) {
 					(*csock).close();
-					(*ssock).close();
+					socket_.close();
 				}
 				//cout << "do_read ec:" << ec << endl;
 			}
@@ -131,9 +132,10 @@ private:
 			if (!ec) {
 				start_read();
 			}
-			else {
+			/*else {
+				
 				cout << "do_write ec:" <<ec << endl;
-			}
+			}*/
 		});
 	}
 	void start_read2() {
@@ -149,7 +151,7 @@ private:
 				cd = true;
 				if (sd) {
 					(*csock).close();
-					(*ssock).close();
+					socket_.close();
 				}
 			}
 		});
@@ -160,9 +162,9 @@ private:
 			if (!ec) {
 				start_read2();
 			}
-			else {
+			/*else {
 				cout << "do_write2 ec:" << ec << endl;
-			}
+			}*/
 		});
 	}
 public:
@@ -205,41 +207,147 @@ void firewall() {
 void reply_client() {
 	unsigned char res[8];
 	res[0] = 0;
-	if (ginfo.accept) res[1] = 90;
-	else res[1] = 91;
+	if (ginfo.accept) { res[1] = 90; }
+	else { res[1] = 91; }
 	//res[2] = stoi(ginfo.dst_port) / 256;
 	//res[3] = stoi(ginfo.dst_port) % 256;
-    res[2] = 0;
-	res[3] = 0;
-    res[4] = 0;
+	if (ginfo.mode == 1) {//connect
+		res[2] = 0;
+		res[3] = 0;
+	}
+	else {//bind
+		srand(time(NULL));//generate a port for server to bind
+		int x = rand() % 100;
+		gport = 50000 + x;
+		res[2] = gport / 256;
+		res[3] = gport % 256;
+	}
+	res[4] = 0;
 	res[5] = 0;
 	res[6] = 0;
 	res[7] = 0;
-	//vector<string> tmp = split(ginfo.dst_ip, ".");
-	//res[4] = (unsigned char)stoi(tmp.at(0)) >> 24;
-	//res[5] = ((unsigned char)stoi(tmp.at(1)) >> 16) & 0xFF;
-	//res[6] = ((unsigned char)stoi(tmp.at(2)) >> 8) & 0xFF;
-	//res[7] = (unsigned char)stoi(tmp.at(3)) & 0xFF;
-	/*if(ginfo.mode == 2){
-		vector<string> tmp = split(ginfo.dst_ip, ".");
-
-		res[4] = (unsigned char)stoi(tmp.at(0)) >> 24;
-		res[5] = ((unsigned char)stoi(tmp.at(1)) >> 16) & 0xFF;
-		res[6] = ((unsigned char)stoi(tmp.at(2)) >> 8) & 0xFF;
-		res[7] = (unsigned char)stoi(tmp.at(3)) & 0xFF;
-	}else{
-		res[4] = 0;
-		res[5] = 0;
-		res[6] = 0;
-		res[7] = 0;
-	}*/
+	
 
 	boost::asio::async_write(*csock, boost::asio::buffer(res, 8),
 		std::bind(do_nothing, std::placeholders::_1));
 
 }
+class session2
+	: public std::enable_shared_from_this<session2> {
+public:
+	session2(tcp::socket socket)
+		: socket_(std::move(socket)) {
+	}
 
-void connect() {
+	void start() {
+		unsigned char res[8];
+		res[0] = 0;
+		if (ginfo.accept) { res[1] = 90; }
+		else { res[1] = 91; }
+		res[2] = gport / 256;
+		res[3] = gport % 256;
+		res[4] = 0;
+		res[5] = 0;
+		res[6] = 0;
+		res[7] = 0;
+		boost::asio::async_write(socket_, boost::asio::buffer(res, 8),
+			bind(&session2::receive_reply, this, _1));
+	}
+	void receive_reply(const boost::system::error_code& error) {
+		if (!error) {
+			start_read();
+			start_read2();
+		}
+	}
+private:
+	void start_read() {
+		memset(data_, 0, sizeof(data_));
+		socket_.async_read_some(
+			boost::asio::buffer(data_, max_length),
+			[this](boost::system::error_code ec, std::size_t length) {
+			if (!ec) {
+				do_write(length);
+			}
+			else {
+				sd = true;
+				if (cd) {
+					(*csock).close();
+					socket_.close();
+				}
+				//cout << "do_read ec:" << ec << endl;
+			}
+		});
+	}
+	void do_write(std::size_t length) {
+		boost::asio::async_write(*csock, boost::asio::buffer(data_, length),
+			[this](boost::system::error_code ec, std::size_t /*length2*/) {
+			if (!ec) {
+				start_read();
+			}
+			/*else {
+
+				cout << "do_write ec:" <<ec << endl;
+			}*/
+		});
+	}
+	void start_read2() {
+		memset(data2_, 0, sizeof(data2_));
+		(*csock).async_read_some(
+			boost::asio::buffer(data2_, max_length),
+			[this](boost::system::error_code ec, std::size_t length) {
+			if (!ec) {
+				do_write2(length);
+			}
+			else {
+				//cout << "do_read2 ec:" << ec << endl;
+				cd = true;
+				if (sd) {
+					(*csock).close();
+					socket_.close();
+				}
+			}
+		});
+	}
+	void do_write2(std::size_t length) {
+		boost::asio::async_write(socket_, boost::asio::buffer(data2_, length),
+			[this](boost::system::error_code ec, std::size_t /*length2*/) {
+			if (!ec) {
+				start_read2();
+			}
+			/*else {
+				cout << "do_write2 ec:" << ec << endl;
+			}*/
+		});
+	}
+
+	bool cd = false;//client done
+	bool sd = false;//server done
+	tcp::socket socket_;
+	enum { max_length = 1024 };
+	char data_[max_length];
+	char data2_[max_length];
+};
+class server2 {
+public:
+	server2(int port)
+		: acceptor_(io_context, tcp::endpoint(tcp::v4(), port)) {
+		do_accept();
+	}
+
+private:
+	void do_accept() {
+		acceptor_.async_accept(
+			[this](boost::system::error_code ec, tcp::socket socket) {
+			if (!ec) {
+				// create an object(session) and call its start() fuction
+				std::make_shared<session2>(std::move(socket))->start();
+			}
+		});
+	}
+
+	tcp::acceptor acceptor_;
+};
+void connect_mode() {
 	if (ginfo.mode == 1) {//connect mode
 		//std::make_shared<client>(io_context)->start();
 		//io_context.run();
@@ -248,7 +356,7 @@ void connect() {
 		io_context.run();
 	}
 	else {//bind mode
-
+		server2 s(gport);
 	}
 }
 
@@ -311,8 +419,8 @@ private:
 					show_message();
 					//reply client
 					reply_client();
-					//do_write();
-					connect();
+
+					connect_mode();
 				}
 				else {
 					io_context.notify_fork(boost::asio::io_context::fork_parent);
@@ -327,6 +435,7 @@ private:
 	enum { max_length = 1024 };
 	unsigned char data_[max_length];
 };
+
 
 class server {
 public:
