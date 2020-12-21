@@ -348,6 +348,7 @@ private:
 	tcp::acceptor acceptor_;
 };
 void connect_mode() {
+  if(!ginfo.accept) return;
 	if (ginfo.mode == 1) {//connect mode
 		//std::make_shared<client>(io_context)->start();
 		//io_context.run();
