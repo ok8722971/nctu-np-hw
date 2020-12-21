@@ -36,14 +36,16 @@ void show_message() {
 	cout << "<S_PORT>: " << ginfo.src_port << endl;
 	cout << "<D_IP>: " << ginfo.dst_ip << endl;
 	cout << "<D_PORT>: " << ginfo.dst_port << endl;
-	if(ginfo.mode == 1)
+	if(ginfo.mode == 1){
 		cout << "<Command>: CONNECT" << endl;
-	else
+	}else{
 		cout << "<Command>: BIND" << endl;
-	if(ginfo.accept)
+	}
+  if(ginfo.accept){
 		cout << "<Reply>: Accept" <<endl;
-	else
+	}else{
 		cout << "<Reply>: Reject" << endl;
+  }
 }
 void do_nothing(const boost::system::error_code& error) {}
 
@@ -77,7 +79,7 @@ public:
 			start_connect(endpoints_.begin());
 		}
 		catch (const exception& e) {
-			cout << e.what() << endl;
+			//cout << e.what() << endl;
 		}
 	}
 private:
@@ -91,12 +93,12 @@ private:
 		tcp::resolver::results_type::iterator endpoint_iter) {
 
 		if (!socket_.is_open()) {
-			std::cout << "Connect timed out<br>";
+			//std::cout << "Connect timed out<br>";
 			start_connect(++endpoint_iter);
 		}
 
 		else if (error) {
-			std::cout << "Connect error: " << error.message() << "\n";
+			//std::cout << "Connect error: " << error.message() << "\n";
 
 			socket_.close();
 
@@ -348,7 +350,6 @@ private:
 	tcp::acceptor acceptor_;
 };
 void connect_mode() {
-  if(!ginfo.accept) return;
 	if (ginfo.mode == 1) {//connect mode
 		//std::make_shared<client>(io_context)->start();
 		//io_context.run();
@@ -420,8 +421,9 @@ private:
 					show_message();
 					//reply client
 					reply_client();
-
-					connect_mode();
+          if(ginfo.accept){
+					  connect_mode();
+          }
 				}
 				else {
 					io_context.notify_fork(boost::asio::io_context::fork_parent);
