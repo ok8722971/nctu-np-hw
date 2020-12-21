@@ -470,7 +470,7 @@ int main(int argc, char* argv[]) {
 		io_context.run();
 	}
 	catch (std::exception& e) {
-		std::cerr << "Exception: " << e.what() << "\n";
+		//std::cerr << "Exception: " << e.what() << "\n";
 	}
 
 	return 0;
